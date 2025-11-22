@@ -64,6 +64,52 @@ def get_profile(token: str):
 
     return resp.json()
 
+
+@app.get("/activities")
+def get_activities(token: str = None):
+    """Fetch recent activities from Strava and return a cleaned list.
+
+    Accepts `token` as a query parameter. If not provided, returns 400.
+    """
+    if not token:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "token query parameter is required"},
+        )
+
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"per_page": 30}
+
+    resp = requests.get(
+        "https://www.strava.com/api/v3/athlete/activities",
+        headers=headers,
+        params=params,
+    )
+
+    if resp.status_code != 200:
+        return JSONResponse(
+            status_code=resp.status_code,
+            content={"error": "failed to fetch activities", "detail": resp.text},
+        )
+
+    raw = resp.json()
+
+    # Normalize / clean fields for the frontend
+    cleaned = []
+    for a in raw:
+        cleaned.append(
+            {
+                "id": a.get("id"),
+                "name": a.get("name"),
+                "type": a.get("type"),
+                "distance": a.get("distance"),
+                "moving_time": a.get("moving_time"),
+                "start_date": a.get("start_date"),
+            }
+        )
+
+    return cleaned
+
 # 1️⃣ 前端点“Login with Strava”会访问这里
 @app.get("/auth/strava/login")
 def strava_login():

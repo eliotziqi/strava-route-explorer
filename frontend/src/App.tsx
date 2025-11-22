@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 function App() {
   const [token, setToken] = useState<string | null>(null);
+  const [activities, setActivities] = useState<any[]>([]);
+
 
   // 页面加载时，从 URL 或 localStorage 读取 token
   useEffect(() => {
@@ -21,6 +23,32 @@ function App() {
       }
     }
   }, []);
+
+  // Fetch activities when token is available
+  useEffect(() => {
+    if (!token) return;
+
+    const fetchActivities = async () => {
+      try {
+        const res = await fetch(`http://localhost:8000/activities?token=${token}`);
+        if (!res.ok) {
+          console.error("Failed to fetch activities", await res.text());
+          return;
+        }
+
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setActivities(data);
+        } else {
+          console.warn("Unexpected activities response", data);
+        }
+      } catch (err) {
+        console.error("Error fetching activities", err);
+      }
+    };
+
+    fetchActivities();
+  }, [token]);
 
   // 跳转到后端进行 Strava 登录
   const handleLogin = () => {
@@ -97,6 +125,39 @@ function App() {
           >
             Logout
           </button>
+          {/* Activities list */}
+          <div style={{ marginTop: 20, textAlign: "left", maxWidth: 720 }}>
+            <h3 style={{ marginBottom: 8 }}>Recent Activities</h3>
+            {activities.length === 0 ? (
+              <p style={{ opacity: 0.8 }}>No activities yet.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {activities.map((a) => {
+                  const date = a.start_date ? a.start_date.split("T")[0] : "-";
+                  const km = typeof a.distance === "number" ? (a.distance / 1000).toFixed(1) : "-";
+                  return (
+                    <div
+                      key={a.id}
+                      style={{
+                        padding: 8,
+                        borderRadius: 8,
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(148,163,184,0.08)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12,
+                      }}
+                    >
+                      <div style={{ minWidth: 110, opacity: 0.9 }}>{date}</div>
+                      <div style={{ minWidth: 80 }}>{a.type}</div>
+                      <div style={{ minWidth: 90 }}>{km} km</div>
+                      <div style={{ flex: 1, textAlign: "left", opacity: 0.95 }}>{a.name}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
