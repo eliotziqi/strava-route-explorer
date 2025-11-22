@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi import Query
+import polyline
 
 # ============ 读取 .env ============
 
@@ -109,6 +111,65 @@ def get_activities(token: str = None):
         )
 
     return cleaned
+
+
+@app.get("/activity_lines")
+def activity_lines(token: str = None, ids: list[int] = Query(None)):
+    """Return decoded polyline coords for requested activities.
+
+    - `token` (query) required.
+    - `ids` (query list) optional: if provided, filter to these activity ids.
+    The endpoint fetches recent activities (per_page=30), decodes `map.summary_polyline`,
+    and returns coords in `[lat, lng]` pairs suitable for mapping libraries.
+    """
+    if not token:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "token query parameter is required"},
+        )
+
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"per_page": 30}
+
+    resp = requests.get(
+        "https://www.strava.com/api/v3/athlete/activities",
+        headers=headers,
+        params=params,
+    )
+
+    if resp.status_code != 200:
+        return JSONResponse(
+            status_code=resp.status_code,
+            content={"error": "failed to fetch activities", "detail": resp.text},
+        )
+
+    raw = resp.json()
+
+    results = []
+    for a in raw:
+        act_id = a.get("id")
+        if ids and act_id not in ids:
+            continue
+
+        # Strava polyline is in map.summary_polyline (may be None)
+        mp = a.get("map") or {}
+        poly = mp.get("summary_polyline") or mp.get("polyline")
+        if not poly:
+            # skip activities without polyline
+            continue
+
+        try:
+            # polyline.decode returns list of (lat, lng)
+            latlngs = polyline.decode(poly)
+            # convert to list of [lat, lng] (react-leaflet expects [lat, lng])
+            coords = [[lat, lng] for (lat, lng) in latlngs]
+
+            results.append({"id": act_id, "coords": coords})
+        except Exception as e:
+            # ignore decode errors per-activity
+            continue
+
+    return results
 
 # 1️⃣ 前端点“Login with Strava”会访问这里
 @app.get("/auth/strava/login")
