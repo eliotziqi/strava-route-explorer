@@ -16,6 +16,8 @@ import type { ColorSchemeId } from '../../lib/heatmap';
 import ActivityPopup from './ActivityPopup';
 import FitBounds from './FitBounds';
 
+export type BaseLayerId = 'osm' | 'topo' | 'satelite' | 'dark' | 'light' | 'summer' | 'winter' | 'backdrop' | 'watercolor';
+
 type LatLng = [number, number];
 
 export interface DecodedActivity {
@@ -36,6 +38,52 @@ type SegmentPolyline = {
 type MapCanvasProps = {
   activities: DecodedActivity[];
   colorScheme: ColorSchemeId;
+  baseLayer: BaseLayerId;
+};
+
+const BASEMAP_CONFIG: Record<BaseLayerId, { url: string; attribution: string }> = {
+  osm: {
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+  },
+  topo: {
+    url: 'https://api.maptiler.com/maps/topo-v2/{z}/{x}/{y}@2x.png?key=ft7dkN6id57uJ9V08QMh',
+    attribution:
+      '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>',
+  },
+  satelite: {
+    url: 'https://api.maptiler.com/maps/satellite/{z}/{x}/{y}@2x.jpg?key=ft7dkN6id57uJ9V08QMh',
+    attribution:
+      '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>',
+  },
+  dark: {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution:
+      '&copy; <a href="https://carto.com/attributions">CARTO</a> & OSM',
+  },
+  light: {
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    attribution:
+      '&copy; <a href="https://carto.com/attributions">CARTO</a> & OSM',
+  },
+  watercolor: {
+    url: 'https://tiles.stadiamaps.com/tiles/stamen_watercolor/{z}/{x}/{y}.png',
+    attribution: '&copy; Stadia Maps, OpenMapTiles, OpenStreetMap contributors'
+  },
+  winter: {
+    url: 'https://api.maptiler.com/maps/winter-v2/{z}/{x}/{y}@2x.png?key=ft7dkN6id57uJ9V08QMh',
+    attribution: '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>'
+  },
+  summer: {
+    url: 'https://api.maptiler.com/maps/outdoor-v2/{z}/{x}/{y}@2x.png?key=ft7dkN6id57uJ9V08QMh',
+    attribution: '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>'
+  },
+  backdrop: {
+    url: 'https://api.maptiler.com/maps/backdrop/{z}/{x}/{y}@2x.png?key=ft7dkN6id57uJ9V08QMh',
+    attribution: '<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>'
+  },
+
 };
 
 /* ------------------ 距离 / 命中工具 ------------------ */
@@ -121,8 +169,8 @@ function ClickHandler({
 
 /* ------------------ 主组件 ------------------ */
 
-export function MapCanvas({ activities, colorScheme }: MapCanvasProps) {
-  console.log('MapCanvas render (full heatmap)');
+export function MapCanvas({ activities, colorScheme, baseLayer }: MapCanvasProps) {
+  const basemap = BASEMAP_CONFIG[baseLayer] ?? BASEMAP_CONFIG.dark;
 
   const [selectedPoint, setSelectedPoint] = useState<LatLng | null>(null);
   const [matchedActivities, setMatchedActivities] = useState<DecodedActivity[]>(
@@ -210,7 +258,7 @@ export function MapCanvas({ activities, colorScheme }: MapCanvasProps) {
       zoom={2}
       style={{ height: '60vh', width: '100%' }}
     >
-      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+      <TileLayer url={basemap.url} attribution={basemap.attribution} />
 
       {/* 热力线 / Fallback 线路 */}
       {useFallback
