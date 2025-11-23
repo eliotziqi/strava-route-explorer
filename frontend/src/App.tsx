@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import "leaflet/dist/leaflet.css";
 import { NavLink, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import ActivityView from './views/ActivityView';
-import MapView from './views/MapView';
+import MapView from './views/Map/MapView';
 import StatView from './views/StatView';
 import ProfileView from './views/ProfileView';
 import appIcon from './assets/icon-app.png';
