@@ -367,6 +367,8 @@ function App() {
                   filterSports={filterSports}
                   filterYears={filterYears}
                   filterHasRoute={filterHasRoute}
+                  allSports={allSports}
+                  allYears={allYears}
                 />
               }
             />

@@ -16,6 +16,8 @@ type StatViewProps = {
   filterSports: string[];
   filterYears: string[];
   filterHasRoute: boolean;
+  allSports?: string[];
+  allYears?: string[];
 };
 
 export default function StatView({
@@ -24,10 +26,21 @@ export default function StatView({
   filterSports,
   filterYears,
   filterHasRoute,
+  allSports,
+  allYears,
 }: StatViewProps) {
+  // show 'None' when empty, 'All' when selected count equals total available
+  const sportsLabel = (() => {
+    if (!filterSports || filterSports.length === 0) return 'None';
+    if (allSports && filterSports.length === allSports.length) return 'All';
+    return filterSports.join(', ');
+  })();
 
-  const sportsLabel = filterSports && filterSports.length ? filterSports.join(', ') : 'All';
-  const yearsLabel = filterYears && filterYears.length ? filterYears.join(', ') : 'All';
+  const yearsLabel = (() => {
+    if (!filterYears || filterYears.length === 0) return 'None';
+    if (allYears && filterYears.length === allYears.length) return 'All';
+    return filterYears.join(', ');
+  })();
   const extraFlags: string[] = [];
   if (filterHasRoute) extraFlags.push('Only with route');
 
