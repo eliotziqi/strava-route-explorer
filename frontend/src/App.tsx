@@ -182,24 +182,49 @@ function App() {
   const filteredActivities = useMemo(() => {
     return (activities || []).filter((a) => {
       if (!a) return false;
+      // Sports 多选：如果没有选项（空数组）则视为没有通过任何 sport
+      if (filterSports.length === 0 || !filterSports.includes(a.type)) return false;
 
-      // Sports 多选：有选项时才过滤
-      if (filterSports.length > 0 && !filterSports.includes(a.type)) return false;
-
-      // Years 多选
-      if (a.start_date) {
-        const y = new Date(a.start_date).getFullYear().toString();
-        if (filterYears.length > 0 && !filterYears.includes(y)) return false;
-      } else if (filterYears.length > 0) {
-        // 没有 start_date 但用户设置了年份筛选，直接丢弃
-        return false;
-      }
+      // Years 多选：同样，如果没有年份被选中则不通过
+      if (!a.start_date) return false;
+      const y = new Date(a.start_date).getFullYear().toString();
+      if (filterYears.length === 0 || !filterYears.includes(y)) return false;
 
       if (filterHasRoute && !a.polyline) return false;
 
       return true;
     });
   }, [activities, filterSports, filterYears, filterHasRoute]);
+
+  // compute all possible sports and years from activities (used to initialize full-selection)
+  const allSports = useMemo(() => {
+    const s = new Set<string>();
+    (activities || []).forEach((a) => { if (a?.type) s.add(a.type); });
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [activities]);
+
+  const allYears = useMemo(() => {
+    const s = new Set<string>();
+    (activities || []).forEach((a) => {
+      if (!a?.start_date) return;
+      const y = new Date(a.start_date).getFullYear().toString();
+      s.add(y);
+    });
+    return Array.from(s).sort((a, b) => Number(b) - Number(a));
+  }, [activities]);
+
+  // initialize filters to "all selected" automatically when activities first appear
+  useEffect(() => {
+    if ((activities || []).length === 0) return;
+    if ((filterSports || []).length === 0 && allSports.length > 0) {
+      setFilterSports(allSports);
+    }
+    if ((filterYears || []).length === 0 && allYears.length > 0) {
+      setFilterYears(allYears);
+    }
+    // only run when activities/all lists change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activities, allSports, allYears]);
 
   
 
@@ -316,7 +341,8 @@ function App() {
               element={
                 <ActivityView
                   activities={filteredActivities}
-                  allActivities={activities}
+                  allSports={allSports}
+                  allYears={allYears}
                   loadingActivities={loadingActivities}
                   selectedIds={selectedIds}
                   toggleSelect={toggleSelect}

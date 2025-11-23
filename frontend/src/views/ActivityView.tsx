@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 
 type Props = {
   activities: any[];            // 已过滤的
-  allActivities: any[];         // 全部活动，用于生成 sport/year 列表
+  allSports: string[];          // 全部可选运动类型（由 App 提供）
+  allYears: string[];           // 全部可选年份（由 App 提供）
   loadingActivities: boolean;
   selectedIds: number[];
   toggleSelect: (id: number) => void;
@@ -18,7 +19,8 @@ type Props = {
 
 export default function ActivityView({
   activities,
-  allActivities,
+  allSports,
+  allYears,
   loadingActivities,
   selectedIds,
   toggleSelect,
@@ -34,29 +36,13 @@ export default function ActivityView({
   const disabled = loadingActivities === true;
   const [sortKey, setSortKey] = useState<'date-desc' | 'distance-desc'>('date-desc');
 
-  // 运动类型：从全部活动里收集，按字母排序
-  const sportOptions = useMemo(() => {
-    const set = new Set<string>();
-    (allActivities || []).forEach((a) => {
-      if (a?.type) set.add(a.type);
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [allActivities]);
+  // 使用由 App 提供的完整选项集合
+  const sportOptions = allSports || [];
+  const yearOptions = allYears || [];
 
-  // 年份：从全部活动里收集，按年份倒序
-  const yearOptions = useMemo(() => {
-    const set = new Set<string>();
-    (allActivities || []).forEach((a) => {
-      if (!a?.start_date) return;
-      const y = new Date(a.start_date).getFullYear().toString();
-      set.add(y);
-    });
-    return Array.from(set).sort((a, b) => Number(b) - Number(a));
-  }, [allActivities]);
-
-  // 辅助：判断当前是否“等价于全选”
-  const isSportAll = filterSports.length === 0 || filterSports.length === sportOptions.length;
-  const isYearAll = filterYears.length === 0 || filterYears.length === yearOptions.length;
+  // 辅助：判断当前是否“等价于全选”（当选中数量等于全部可选数量）
+  const isSportAll = sportOptions.length > 0 && filterSports.length === sportOptions.length;
+  const isYearAll = yearOptions.length > 0 && filterYears.length === yearOptions.length;
 
   const toggleSport = (s: string) => {
     if (filterSports.includes(s)) {
@@ -77,7 +63,8 @@ export default function ActivityView({
   const handleSportAll = () => {
     // 有筛选 ⇒ 清空（视为全部）
     // 没筛选 ⇒ 选中全部
-    if (filterSports.length > 0) {
+    if (isSportAll) {
+      // currently all selected -> toggle to none
       setFilterSports([]);
     } else {
       setFilterSports(sportOptions);
@@ -85,7 +72,7 @@ export default function ActivityView({
   };
 
   const handleYearAll = () => {
-    if (filterYears.length > 0) {
+    if (isYearAll) {
       setFilterYears([]);
     } else {
       setFilterYears(yearOptions);
@@ -131,20 +118,11 @@ export default function ActivityView({
         {/* Sports row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, opacity: 0.8 }}>Sports:</span>
-          <button
-            type="button"
-            onClick={handleSportAll}
-            style={pillStyle(isSportAll)}
-          >
+          <button type="button" onClick={handleSportAll} style={pillStyle(isSportAll)}>
             All
           </button>
           {sportOptions.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => toggleSport(s)}
-              style={pillStyle(filterSports.includes(s))}
-            >
+            <button key={s} type="button" onClick={() => toggleSport(s)} style={pillStyle(filterSports.includes(s))}>
               {s}
             </button>
           ))}
@@ -153,20 +131,11 @@ export default function ActivityView({
         {/* Years row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, opacity: 0.8 }}>Years:</span>
-          <button
-            type="button"
-            onClick={handleYearAll}
-            style={pillStyle(isYearAll)}
-          >
+          <button type="button" onClick={handleYearAll} style={pillStyle(isYearAll)}>
             All
           </button>
           {yearOptions.map((y) => (
-            <button
-              key={y}
-              type="button"
-              onClick={() => toggleYear(y)}
-              style={pillStyle(filterYears.includes(y))}
-            >
+            <button key={y} type="button" onClick={() => toggleYear(y)} style={pillStyle(filterYears.includes(y))}>
               {y}
             </button>
           ))}
