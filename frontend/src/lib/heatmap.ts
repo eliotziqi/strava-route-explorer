@@ -1,15 +1,22 @@
-// Heatmap / segment index helpers for Phase 1
-// Provides: buildSegmentIndex, queryActivitiesAtPoint, normalize, color scheme helpers
-
+// src/lib/heatmap.ts
 export type LatLng = [number, number];
-export type ActivityType = "run" | "ride" | "hike" | "other";
 
-export interface Activity {
+export type ColorSchemeId = 'warm' | 'cool' | 'fire' | 'blue' | 'mono';
+
+export interface DecodedActivity {
   id: number;
-  name?: string;
-  type?: ActivityType | string;
-  date?: string;
-  points: LatLng[]; // decoded polyline points
+  name: string;
+  type: string;
+  date: string;
+  points: LatLng[];
+}
+
+interface SegmentMutable {
+  id: string;
+  a: LatLng;
+  b: LatLng;
+  count: number;
+  activityIds: number[];
 }
 
 export interface Segment {
@@ -23,181 +30,214 @@ export interface Segment {
 export interface SegmentIndex {
   segments: Segment[];
   grid: Record<string, number[]>; // cellKey -> segment indices
+  cellSizeDegrees: number;
 }
 
-// Quantize a point to a string key with given precision (decimal places)
-function quantizePoint(p: LatLng, prec = 5) {
-  return `${p[0].toFixed(prec)}|${p[1].toFixed(prec)}`;
+// 粗糙量化函数，避免浮点误差导致同一线段被拆成很多段
+function quantizeCoord([lat, lng]: LatLng, precision = 5): LatLng {
+  const f = Math.pow(10, precision);
+  return [Math.round(lat * f) / f, Math.round(lng * f) / f];
 }
 
-function segmentKey(a: LatLng, b: LatLng, prec = 5) {
-  // produce an order-invariant key for a segment
-  const aStr = quantizePoint(a, prec);
-  const bStr = quantizePoint(b, prec);
-  return aStr < bStr ? `${aStr}/${bStr}` : `${bStr}/${aStr}`;
+function segmentKey(a: LatLng, b: LatLng): string {
+  const qa = quantizeCoord(a);
+  const qb = quantizeCoord(b);
+  const key1 = `${qa[0]},${qa[1]}_${qb[0]},${qb[1]}`;
+  const key2 = `${qb[0]},${qb[1]}_${qa[0]},${qa[1]}`;
+  return key1 < key2 ? key1 : key2; // 无向：排序
 }
 
-// Simple cell mapping: map lat/lng into integer grid cell based on degrees
-function cellKeyForPoint(p: LatLng, cellSizeDegrees = 0.01) {
-  const x = Math.floor(p[0] / cellSizeDegrees);
-  const y = Math.floor(p[1] / cellSizeDegrees);
-  return `${x},${y}`;
-}
+export function buildSegmentIndex(
+  activities: DecodedActivity[],
+  cellSizeDegrees = 0.02,
+): SegmentIndex {
+  const segMap = new Map<string, SegmentMutable>();
 
-export function buildSegmentIndex(activities: Activity[], opts?: { precision?: number; cellSizeDegrees?: number; }) : SegmentIndex {
-  const precision = opts?.precision ?? 5;
-  const cellSizeDegrees = opts?.cellSizeDegrees ?? 0.01;
-
-  const map = new Map<string, Segment>();
-
-  for (const act of activities || []) {
-    if (!act || !Array.isArray(act.points) || act.points.length < 2) continue;
+  // 1. 聚合线段
+  for (const act of activities) {
     const pts = act.points;
+    if (!pts || pts.length < 2) continue;
+
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i];
-      const b = pts[i+1];
-      const key = segmentKey(a, b, precision);
-      let seg = map.get(key);
+      const b = pts[i + 1];
+      const key = segmentKey(a, b);
+
+      let seg = segMap.get(key);
       if (!seg) {
-        seg = { id: key, a, b, count: 0, activityIds: [] };
-        map.set(key, seg);
+        seg = {
+          id: key,
+          a,
+          b,
+          count: 0,
+          activityIds: [],
+        };
+        segMap.set(key, seg);
       }
       seg.count += 1;
-      if (!seg.activityIds.includes(act.id)) seg.activityIds.push(act.id);
+      if (!seg.activityIds.includes(act.id)) {
+        seg.activityIds.push(act.id);
+      }
     }
   }
 
-  const segments = Array.from(map.values());
+  const segments: Segment[] = Array.from(segMap.values()).map((s) => ({
+    id: s.id,
+    a: s.a,
+    b: s.b,
+    count: s.count,
+    activityIds: s.activityIds,
+  }));
+
+  // 2. 粗网格索引
   const grid: Record<string, number[]> = {};
 
-  segments.forEach((s, idx) => {
-    const mid: LatLng = [(s.a[0] + s.b[0]) / 2, (s.a[1] + s.b[1]) / 2];
-    const ck = cellKeyForPoint(mid, cellSizeDegrees);
+  function cellKeyForLatLng([lat, lng]: LatLng): string {
+    const cx = Math.floor(lng / cellSizeDegrees);
+    const cy = Math.floor(lat / cellSizeDegrees);
+    return `${cx},${cy}`;
+  }
+
+  segments.forEach((seg, idx) => {
+    const mid: LatLng = [
+      (seg.a[0] + seg.b[0]) / 2,
+      (seg.a[1] + seg.b[1]) / 2,
+    ];
+    const ck = cellKeyForLatLng(mid);
     if (!grid[ck]) grid[ck] = [];
     grid[ck].push(idx);
   });
 
-  return { segments, grid };
+  return { segments, grid, cellSizeDegrees };
 }
 
-// Haversine distance (meters)
-function toRad(n: number) { return n * Math.PI / 180; }
-function haversine(a: LatLng, b: LatLng) {
-  const R = 6371000; // meters
+// 计数归一化
+export function normalizeCount(
+  count: number,
+  minCount: number,
+  maxCount: number,
+): number {
+  if (maxCount === minCount) return 1;
+  return (count - minCount) / (maxCount - minCount);
+}
+
+// 颜色方案
+type ColorStop = { stop: number; color: string };
+
+export const COLOR_SCHEMES: Record<ColorSchemeId, ColorStop[]> = {
+  warm: [
+    { stop: 0.0, color: '#1a1b26' },
+    { stop: 0.3, color: '#ff7b00' },
+    { stop: 0.6, color: '#ffb300' },
+    { stop: 1.0, color: '#ffffff' },
+  ],
+  cool: [
+    { stop: 0.0, color: '#071952' },
+    { stop: 0.3, color: '#0b6683' },
+    { stop: 0.6, color: '#37b7c3' },
+    { stop: 1.0, color: '#e0ffff' },
+  ],
+  fire: [
+    { stop: 0.0, color: '#200000' },
+    { stop: 0.3, color: '#8b0000' },
+    { stop: 0.6, color: '#ff4500' },
+    { stop: 0.8, color: '#ffb000' },
+    { stop: 1.0, color: '#ffffe0' },
+  ],
+  blue: [
+    { stop: 0.0, color: '#001d3d' },
+    { stop: 0.3, color: '#003566' },
+    { stop: 0.6, color: '#1d7ad5' },
+    { stop: 1.0, color: '#90e0ef' },
+  ],
+  mono: [
+    { stop: 0.0, color: '#111111' },
+    { stop: 0.4, color: '#555555' },
+    { stop: 0.7, color: '#aaaaaa' },
+    { stop: 1.0, color: '#ffffff' },
+  ],
+};
+
+// 极简颜色选择（可以以后再做真正插值）
+export function getColor(t: number, schemeId: ColorSchemeId): string {
+  const stops = COLOR_SCHEMES[schemeId] || COLOR_SCHEMES.warm;
+  if (t <= 0) return stops[0].color;
+  if (t >= 1) return stops[stops.length - 1].color;
+
+  for (let i = 0; i < stops.length - 1; i++) {
+    const a = stops[i];
+    const b = stops[i + 1];
+    if (t >= a.stop && t <= b.stop) {
+      const r = (t - a.stop) / (b.stop - a.stop || 1);
+      return r < 0.5 ? a.color : b.color;
+    }
+  }
+  return stops[stops.length - 1].color;
+}
+
+// 距离函数
+function haversineDistance(a: LatLng, b: LatLng): number {
+  const R = 6371000;
+  const toRad = (x: number) => (x * Math.PI) / 180;
+
   const dLat = toRad(b[0] - a[0]);
-  const dLon = toRad(b[1] - a[1]);
-  const lat1 = toRad(a[0]);
-  const lat2 = toRad(b[0]);
+  const dLng = toRad(b[1] - a[1]);
 
-  const sinDlat = Math.sin(dLat/2);
-  const sinDlon = Math.sin(dLon/2);
-  const x = sinDlat*sinDlat + Math.cos(lat1)*Math.cos(lat2)*sinDlon*sinDlon;
-  const c = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
-  return R * c;
+  const sa = Math.sin(dLat / 2);
+  const sb = Math.sin(dLng / 2);
+
+  const c =
+    sa * sa +
+    Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * sb * sb;
+
+  return 2 * R * Math.asin(Math.sqrt(c));
 }
 
-// distance from point p to segment ab in meters (approx using haversine)
-function pointToSegmentDistanceMeters(p: LatLng, a: LatLng, b: LatLng) {
-  // Handle degenerate case
-  const abDist = haversine(a, b);
-  if (abDist === 0) return haversine(p, a);
-
-  // Project p onto line ab using simple equirectangular approx for small distances
-  // Convert to Cartesian using lat/lon in radians scaled by cos(meanLat)
-  const latMean = toRad((a[0] + b[0] + p[0]) / 3);
-  const xA = toRad(a[1]) * Math.cos(latMean);
-  const yA = toRad(a[0]);
-  const xB = toRad(b[1]) * Math.cos(latMean);
-  const yB = toRad(b[0]);
-  const xP = toRad(p[1]) * Math.cos(latMean);
-  const yP = toRad(p[0]);
-
-  const vx = xB - xA;
-  const vy = yB - yA;
-  const wx = xP - xA;
-  const wy = yP - yA;
-  const c1 = vx*wx + vy*wy;
-  const c2 = vx*vx + vy*vy;
-  let t = c1 / c2;
-  t = Math.max(0, Math.min(1, t));
-  const projX = xA + t*vx;
-  const projY = yA + t*vy;
-
-  // distance between P and projection in meters
-  const dRad = Math.sqrt((projY - yP)*(projY - yP) + (projX - xP)*(projX - xP));
-  return dRad * 6371000; // approximate
+function pointToSegmentDistance(p: LatLng, a: LatLng, b: LatLng): number {
+  // 简化版：点到两端点的最小距离
+  const d1 = haversineDistance(p, a);
+  const d2 = haversineDistance(p, b);
+  return Math.min(d1, d2);
 }
 
-export function queryActivitiesAtPoint(point: LatLng, index: SegmentIndex, toleranceMeters = 50, opts?: { cellSizeDegrees?: number; searchRadius?: number }) : number[] {
-  const cellSizeDegrees = opts?.cellSizeDegrees ?? 0.01;
-  const searchRadius = opts?.searchRadius ?? 1; // number of cells around
-  const ck = cellKeyForPoint(point, cellSizeDegrees);
-  const [cxStr, cyStr] = ck.split(',');
-  const cx = Number(cxStr);
-  const cy = Number(cyStr);
+// 点选查询
+export function queryActivitiesAtPoint(
+  point: LatLng,
+  index: SegmentIndex,
+  toleranceMeters = 50,
+): number[] {
+  const { segments, grid, cellSizeDegrees } = index;
+  if (!segments.length) return [];
 
-  const hitActivityIds = new Set<number>();
+  const cx = Math.floor(point[1] / cellSizeDegrees);
+  const cy = Math.floor(point[0] / cellSizeDegrees);
 
-  for (let dx = -searchRadius; dx <= searchRadius; dx++) {
-    for (let dy = -searchRadius; dy <= searchRadius; dy++) {
-      const key = `${cx+dx},${cy+dy}`;
-      const candidates = index.grid[key];
-      if (!candidates || candidates.length === 0) continue;
-      for (const si of candidates) {
-        const s = index.segments[si];
-        const d = pointToSegmentDistanceMeters(point, s.a, s.b);
-        if (d <= toleranceMeters) {
-          for (const aid of s.activityIds) hitActivityIds.add(aid);
-        }
+  const candidates: number[] = [];
+
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const key = `${cx + dx},${cy + dy}`;
+      const arr = grid[key];
+      if (!arr) continue;
+      for (const idx of arr) {
+        candidates.push(idx);
       }
     }
   }
 
-  return Array.from(hitActivityIds);
-}
+  if (!candidates.length) return [];
 
-// normalize count to 0..1
-export function normalizeCount(count: number, min: number, max: number) {
-  if (max === min) return 1;
-  return (count - min) / (max - min);
-}
+  const resultActivityIds = new Set<number>();
 
-// Simple color interpolation helpers
-function hexToRgb(hex: string) {
-  const h = hex.replace('#','');
-  const bigint = parseInt(h, 16);
-  return [(bigint >> 16) & 255, (bigint >> 8) & 255, bigint & 255];
-}
-function rgbToHex(r: number, g: number, b: number) {
-  return '#' + [r,g,b].map(x => x.toString(16).padStart(2,'0')).join('');
-}
-
-export type ColorStop = { stop: number; color: string };
-export type ColorSchemeId = 'warm' | 'cool' | 'fire' | 'blue' | 'mono';
-
-export const COLOR_SCHEMES: Record<ColorSchemeId, ColorStop[]> = {
-  warm: [ { stop: 0, color: '#ffffff' }, { stop: 0.5, color: '#ffb86b' }, { stop: 1, color: '#ff4c02' } ],
-  cool: [ { stop: 0, color: '#ffffff' }, { stop: 0.5, color: '#9be7ff' }, { stop: 1, color: '#0077ff' } ],
-  fire: [ { stop: 0, color: '#ffffe0' }, { stop: 0.5, color: '#ffbf40' }, { stop: 1, color: '#ff0000' } ],
-  blue: [ { stop: 0, color: '#f0f8ff' }, { stop: 0.5, color: '#a0c4ff' }, { stop: 1, color: '#0047ab' } ],
-  mono: [ { stop: 0, color: '#f7f7f7' }, { stop: 1, color: '#333333' } ],
-};
-
-export function getColor(t: number, schemeId: ColorSchemeId) {
-  const scheme = COLOR_SCHEMES[schemeId] || COLOR_SCHEMES.warm;
-  if (t <= scheme[0].stop) return scheme[0].color;
-  for (let i = 0; i < scheme.length - 1; i++) {
-    const a = scheme[i];
-    const b = scheme[i+1];
-    if (t >= a.stop && t <= b.stop) {
-      const span = (t - a.stop) / (b.stop - a.stop || 1);
-      const [ar, ag, ab] = hexToRgb(a.color);
-      const [br, bg, bb] = hexToRgb(b.color);
-      const rr = Math.round(ar + (br - ar) * span);
-      const rg = Math.round(ag + (bg - ag) * span);
-      const rb = Math.round(ab + (bb - ab) * span);
-      return rgbToHex(rr, rg, rb);
+  for (const idx of candidates) {
+    const seg = segments[idx];
+    const dist = pointToSegmentDistance(point, seg.a, seg.b);
+    if (dist <= toleranceMeters) {
+      for (const aid of seg.activityIds) {
+        resultActivityIds.add(aid);
+      }
     }
   }
-  return scheme[scheme.length-1].color;
+
+  return Array.from(resultActivityIds);
 }
