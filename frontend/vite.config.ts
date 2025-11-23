@@ -6,6 +6,6 @@ export default defineConfig({
   plugins: [react()],
   base: '/strava-route-explorer/',
   build: {
-    outDir: './dist/'
+    outDir: '../docs/'
   }
 })
