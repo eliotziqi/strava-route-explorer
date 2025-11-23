@@ -136,7 +136,8 @@ export function MapCanvas({ activities, colorScheme }: MapCanvasProps) {
   );
 
   const segCount = segmentIndex.segments?.length ?? 0;
-  const useFallback = segCount > 50000; // 太多就降级成每活动一条线
+  const useFallback = segCount > 100000; // 太多就降级成每活动一条线
+  console.log('segments:', segCount, 'useFallback:', useFallback);
 
   /* ---------- 安全 min / max ---------- */
   const counts = (segmentIndex.segments || []).map((s: any) => s.count);
@@ -166,6 +167,9 @@ export function MapCanvas({ activities, colorScheme }: MapCanvasProps) {
       };
     });
   }, [segmentIndex, minCount, maxCount, colorScheme]);
+
+  // 给 fallback 用的统一颜色：在当前配色方案中取一个“中等热度”的颜色
+  const fallbackColor = getColor(0.6, colorScheme);
 
   /* ---------- 地图初始中心 ---------- */
   const center: LatLng = useMemo(() => {
@@ -215,7 +219,7 @@ export function MapCanvas({ activities, colorScheme }: MapCanvasProps) {
               key={a.id}
               positions={a.points as any}
               pathOptions={{
-                color: '#ffb300',
+                color: fallbackColor,
                 weight: 2,
                 opacity: 0.8,
               }}
@@ -247,7 +251,7 @@ export function MapCanvas({ activities, colorScheme }: MapCanvasProps) {
             radius={6}
             pathOptions={{ color: '#ffffff' }}
           />
-          <Popup position={selectedPoint as any}>
+          <Popup position={selectedPoint as any} maxWidth={650}>
             <ActivityPopup activities={matchedActivities} />
           </Popup>
         </>

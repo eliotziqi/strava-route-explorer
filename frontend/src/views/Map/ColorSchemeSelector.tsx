@@ -1,5 +1,5 @@
-import { COLOR_SCHEMES } from '../lib/heatmap';
-import type { ColorSchemeId } from '../lib/heatmap';
+import { COLOR_SCHEMES } from '../../lib/heatmap';
+import type { ColorSchemeId } from '../../lib/heatmap';
 
 interface ColorSchemeSelectorProps {
   value: ColorSchemeId;
