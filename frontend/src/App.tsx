@@ -10,8 +10,8 @@ import appIcon from './assets/icon-app.png';
 function App() {
   const [token, setToken] = useState<string | null>(null);
   const [activities, setActivities] = useState<any[]>([]);
-  const [filterSport, setFilterSport] = useState<'all' | 'Ride' | 'Run' | 'Walk'>('all');
-  const [filterYear, setFilterYear] = useState<'all' | string>('all');
+  const [filterSports, setFilterSports] = useState<string[]>([]);
+  const [filterYears, setFilterYears] = useState<string[]>([]);
   const [filterHasRoute, setFilterHasRoute] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [profile, setProfile] = useState<any | null>(null);
@@ -183,18 +183,23 @@ function App() {
     return (activities || []).filter((a) => {
       if (!a) return false;
 
-      if (filterSport !== 'all' && a.type !== filterSport) return false;
+      // Sports 多选：有选项时才过滤
+      if (filterSports.length > 0 && !filterSports.includes(a.type)) return false;
 
-      if (filterYear !== 'all' && a.start_date) {
+      // Years 多选
+      if (a.start_date) {
         const y = new Date(a.start_date).getFullYear().toString();
-        if (y !== filterYear) return false;
+        if (filterYears.length > 0 && !filterYears.includes(y)) return false;
+      } else if (filterYears.length > 0) {
+        // 没有 start_date 但用户设置了年份筛选，直接丢弃
+        return false;
       }
 
       if (filterHasRoute && !a.polyline) return false;
 
       return true;
     });
-  }, [activities, filterSport, filterYear, filterHasRoute]);
+  }, [activities, filterSports, filterYears, filterHasRoute]);
 
   
 
@@ -317,10 +322,10 @@ function App() {
                   toggleSelect={toggleSelect}
                   loadRecent={loadRecentActivities}
                   loadAll={loadAllActivities}
-                  filterSport={filterSport}
-                  setFilterSport={setFilterSport}
-                  filterYear={filterYear}
-                  setFilterYear={setFilterYear}
+                  filterSports={filterSports}
+                  setFilterSports={setFilterSports}
+                  filterYears={filterYears}
+                  setFilterYears={setFilterYears}
                   filterHasRoute={filterHasRoute}
                   setFilterHasRoute={setFilterHasRoute}
                 />

@@ -1,17 +1,17 @@
 import { useMemo, useState } from 'react';
 
 type Props = {
-  activities: any[];             // 已经过滤后的
-  allActivities: any[];          // 全部原始活动，用来生成年份列表
+  activities: any[];            // 已过滤的
+  allActivities: any[];         // 全部活动，用于生成 sport/year 列表
   loadingActivities: boolean;
   selectedIds: number[];
   toggleSelect: (id: number) => void;
   loadRecent: () => void;
   loadAll: () => void;
-  filterSport: 'all' | 'Ride' | 'Run' | 'Walk';
-  setFilterSport: (v: 'all' | 'Ride' | 'Run' | 'Walk') => void;
-  filterYear: 'all' | string;
-  setFilterYear: (v: 'all' | string) => void;
+  filterSports: string[];
+  setFilterSports: (v: string[]) => void;
+  filterYears: string[];
+  setFilterYears: (v: string[]) => void;
   filterHasRoute: boolean;
   setFilterHasRoute: (v: boolean) => void;
 };
@@ -24,19 +24,26 @@ export default function ActivityView({
   toggleSelect,
   loadRecent,
   loadAll,
-  filterSport,
-  setFilterSport,
-  filterYear,
-  setFilterYear,
+  filterSports,
+  setFilterSports,
+  filterYears,
+  setFilterYears,
   filterHasRoute,
   setFilterHasRoute,
 }: Props) {
   const disabled = loadingActivities === true;
-
-  // 👉 排序只在 ActivityView 里生效，不影响 Stats
   const [sortKey, setSortKey] = useState<'date-desc' | 'distance-desc'>('date-desc');
 
-  // 年份选项，从 allActivities 自动生成
+  // 运动类型：从全部活动里收集，按字母排序
+  const sportOptions = useMemo(() => {
+    const set = new Set<string>();
+    (allActivities || []).forEach((a) => {
+      if (a?.type) set.add(a.type);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [allActivities]);
+
+  // 年份：从全部活动里收集，按年份倒序
   const yearOptions = useMemo(() => {
     const set = new Set<string>();
     (allActivities || []).forEach((a) => {
@@ -44,10 +51,47 @@ export default function ActivityView({
       const y = new Date(a.start_date).getFullYear().toString();
       set.add(y);
     });
-    return ['all', ...Array.from(set).sort((a, b) => Number(b) - Number(a))];
+    return Array.from(set).sort((a, b) => Number(b) - Number(a));
   }, [allActivities]);
 
-  // 基于 sortKey 对「已过滤结果」排序
+  // 辅助：判断当前是否“等价于全选”
+  const isSportAll = filterSports.length === 0 || filterSports.length === sportOptions.length;
+  const isYearAll = filterYears.length === 0 || filterYears.length === yearOptions.length;
+
+  const toggleSport = (s: string) => {
+    if (filterSports.includes(s)) {
+      setFilterSports(filterSports.filter((x) => x !== s));
+    } else {
+      setFilterSports([...filterSports, s]);
+    }
+  };
+
+  const toggleYear = (y: string) => {
+    if (filterYears.includes(y)) {
+      setFilterYears(filterYears.filter((x) => x !== y));
+    } else {
+      setFilterYears([...filterYears, y]);
+    }
+  };
+
+  const handleSportAll = () => {
+    // 有筛选 ⇒ 清空（视为全部）
+    // 没筛选 ⇒ 选中全部
+    if (filterSports.length > 0) {
+      setFilterSports([]);
+    } else {
+      setFilterSports(sportOptions);
+    }
+  };
+
+  const handleYearAll = () => {
+    if (filterYears.length > 0) {
+      setFilterYears([]);
+    } else {
+      setFilterYears(yearOptions);
+    }
+  };
+
   const sortedActivities = useMemo(() => {
     const arr = [...(activities || [])];
     if (sortKey === 'date-desc') {
@@ -67,56 +111,93 @@ export default function ActivityView({
     loadAll();
   };
 
+  // 小组件：pill 样式按钮
+  const pillStyle = (active: boolean): React.CSSProperties => ({
+    padding: '4px 10px',
+    borderRadius: 999,
+    border: active ? '1px solid #f97316' : '1px solid rgba(148,163,184,0.4)',
+    background: active ? 'rgba(249,115,22,0.12)' : 'transparent',
+    fontSize: 13,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  });
+
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Activities</h2>
 
       {/* 筛选区 */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <select
-          value={filterSport}
-          onChange={(e) => setFilterSport(e.target.value as any)}
-          style={{ padding: 6, borderRadius: 8 }}
-        >
-          <option value="all">All sports</option>
-          <option value="Ride">Ride</option>
-          <option value="Run">Run</option>
-          <option value="Walk">Walk</option>
-        </select>
-
-        <select
-          value={filterYear}
-          onChange={(e) => setFilterYear(e.target.value as any)}
-          style={{ padding: 6, borderRadius: 8 }}
-        >
-          {yearOptions.map((y) => (
-            <option key={y} value={y}>
-              {y === 'all' ? 'All years' : y}
-            </option>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+        {/* Sports row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, opacity: 0.8 }}>Sports:</span>
+          <button
+            type="button"
+            onClick={handleSportAll}
+            style={pillStyle(isSportAll)}
+          >
+            All
+          </button>
+          {sportOptions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => toggleSport(s)}
+              style={pillStyle(filterSports.includes(s))}
+            >
+              {s}
+            </button>
           ))}
-        </select>
+        </div>
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <input
-            type="checkbox"
-            checked={filterHasRoute}
-            onChange={(e) => setFilterHasRoute(e.target.checked)}
-          />
-          Only with route
-        </label>
+        {/* Years row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, opacity: 0.8 }}>Years:</span>
+          <button
+            type="button"
+            onClick={handleYearAll}
+            style={pillStyle(isYearAll)}
+          >
+            All
+          </button>
+          {yearOptions.map((y) => (
+            <button
+              key={y}
+              type="button"
+              onClick={() => toggleYear(y)}
+              style={pillStyle(filterYears.includes(y))}
+            >
+              {y}
+            </button>
+          ))}
+        </div>
 
-        {/* 排序（本地 state，不影响 Stats） */}
-        <select
-          value={sortKey}
-          onChange={(e) => setSortKey(e.target.value as any)}
-          style={{ padding: 6, borderRadius: 8, marginLeft: 'auto' }}
-        >
-          <option value="date-desc">Newest first</option>
-          <option value="distance-desc">Longest first</option>
-        </select>
+        {/* Only with route + 排序 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={filterHasRoute}
+              onChange={(e) => setFilterHasRoute(e.target.checked)}
+            />
+            Only with route
+          </label>
+
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, fontSize: 13 }}>
+            <span style={{ opacity: 0.8 }}>Sort:</span>
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as any)}
+              style={{ padding: 4, borderRadius: 8, fontSize: 13 }}
+            >
+              <option value="date-desc">Newest first</option>
+              <option value="distance-desc">Longest first</option>
+            </select>
+          </div>
+        </div>
       </div>
 
-      {/* 加载按钮区域 */}
+      {/* 加载按钮 */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <button
           disabled={disabled}
