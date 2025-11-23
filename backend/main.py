@@ -294,11 +294,19 @@ def strava_callback(code: str):
 
     token_data = resp.json()
     access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
+    expires_at = token_data.get("expires_at")
     athlete = token_data.get("athlete")
 
-    # 为了 demo 简单：把 access_token 带回前端
+    # 为了 demo 简单：把 access_token / refresh_token / expires_at 带回前端
     # 真正产品应该存数据库或签个自己的 JWT
-    redirect_url = f"{FRONTEND_URL}/?token={access_token}"
+    # 注意对 query 参数进行简单拼接（本地 dev 用，生产应更安全）
+    redirect_url = (
+        f"{FRONTEND_URL}"
+        f"?access_token={access_token}"
+        f"&refresh_token={refresh_token}"
+        f"&expires_at={expires_at}"
+    )
 
     # 也可以顺便带上 athlete id：
     # redirect_url += f"&athlete_id={athlete.get('id')}"
@@ -333,3 +341,32 @@ def strava_revoke(token: str = None):
         status_code=resp.status_code,
         content={"error": "failed_to_revoke", "detail": resp.text},
     )
+
+
+@app.post("/auth/strava/refresh")
+def strava_refresh(refresh_token: str | None = None):
+    """
+    Use refresh_token to obtain a new access token from Strava.
+    Returns the token response (access_token, refresh_token, expires_at, ...).
+    """
+    if not refresh_token:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "refresh_token query parameter is required"},
+        )
+
+    data = {
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+    }
+
+    resp = requests.post(STRAVA_TOKEN_URL, data=data)
+    if resp.status_code != 200:
+        return JSONResponse(
+            status_code=resp.status_code,
+            content={"error": "failed_to_refresh_token", "detail": resp.text},
+        )
+
+    return resp.json()

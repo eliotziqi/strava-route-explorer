@@ -9,7 +9,15 @@ import appIcon from './assets/icon-app.png';
 
 function App() {
   const [token, setToken] = useState<string | null>(null);
+  type TokenBundle = {
+    access_token: string;
+    refresh_token: string;
+    expires_at: number; // unix seconds
+  };
+
+  const [tokenBundle, setTokenBundle] = useState<TokenBundle | null>(null);
   const [activities, setActivities] = useState<any[]>([]);
+  
   const [filterSports, setFilterSports] = useState<string[]>([]);
   const [filterYears, setFilterYears] = useState<string[]>([]);
   const [filterHasRoute, setFilterHasRoute] = useState(false);
@@ -22,24 +30,38 @@ function App() {
   const navigate = useNavigate();
 
 
-  // 页面加载时，从 URL 或 localStorage 读取 token
+  // 页面加载时：解析 URL 中的 token bundle 或从 localStorage 恢复
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const t = params.get("token");
+    const at = params.get("access_token");
+    const rt = params.get("refresh_token");
+    const exp = params.get("expires_at");
 
-    if (t) {
-      localStorage.setItem("strava_token", t);
-      setToken(t);
+    if (at && rt && exp) {
+      const bundle: TokenBundle = {
+        access_token: at,
+        refresh_token: rt,
+        expires_at: Number(exp),
+      };
+      setTokenBundle(bundle);
+      try { localStorage.setItem('strava_token_bundle', JSON.stringify(bundle)); } catch {}
 
-      // 清掉 URL 里的 ?token=xxxx
+      // 清掉 URL 参数
       window.history.replaceState({}, "", window.location.pathname);
     } else {
-      const saved = localStorage.getItem("strava_token");
-      if (saved) {
-        setToken(saved);
+      // 尝试从 localStorage 恢复
+      const raw = localStorage.getItem('strava_token_bundle');
+      if (raw) {
+        try {
+          const saved = JSON.parse(raw) as TokenBundle;
+          setTokenBundle(saved);
+        } catch (e) {
+          console.warn('Failed to parse token bundle', e);
+        }
       }
     }
-    // restore cached app state if present
+
+    // 恢复活动与选择缓存
     try {
       const rawActs = localStorage.getItem('rte_activities');
       const rawIds = localStorage.getItem('rte_selectedIds');
@@ -49,6 +71,15 @@ function App() {
       console.warn('Failed to restore cached state', e);
     }
   }, []);
+
+  // 映射 tokenBundle -> 旧的 token state，保持兼容
+  useEffect(() => {
+    if (tokenBundle?.access_token) {
+      setToken(tokenBundle.access_token);
+    } else {
+      setToken(null);
+    }
+  }, [tokenBundle]);
 
   // Note: activities are no longer auto-fetched when token appears.
   // Provide explicit controls on the Activity page to load recent 30 or load all.
@@ -63,15 +94,10 @@ function App() {
 
   // Load recent activities (single page, per_page=30) and merge into state
   const loadRecentActivities = async () => {
-    if (!token) {
-      setErrorMsg('Please connect Strava first');
-      return;
-    }
-
     setLoadingActivities(true);
     setErrorMsg(null);
     try {
-      const res = await fetch(`http://localhost:8000/activities?token=${token}&per_page=30&page=1`);
+      const res = await fetchWithAutoRefresh('http://localhost:8000/activities', { per_page: '30', page: '1' });
       if (!res.ok) {
         const txt = await res.text();
         console.error('Failed to load recent activities', txt);
@@ -108,15 +134,10 @@ function App() {
   // Load all activities (multiple pages). Backend handles paging when all=true.
   // Merges results into existing activities without duplicates.
   const loadAllActivities = async () => {
-    if (!token) {
-      setErrorMsg('Please connect Strava first');
-      return;
-    }
-
     setLoadingActivities(true);
     setErrorMsg(null);
     try {
-      const res = await fetch(`http://localhost:8000/activities?token=${token}&all=true`);
+      const res = await fetchWithAutoRefresh('http://localhost:8000/activities', { all: 'true' });
       if (!res.ok) {
         const txt = await res.text();
         console.error('Failed to load all activities', txt);
@@ -151,11 +172,10 @@ function App() {
 
   // fetch profile helper
   const fetchProfile = async () => {
-    if (!token) return;
     setProfileLoading(true);
     setErrorMsg(null);
     try {
-      const res = await fetch(`http://localhost:8000/me?token=${token}`);
+      const res = await fetchWithAutoRefresh("http://localhost:8000/me");
       if (!res.ok) {
         setErrorMsg('Failed to fetch profile');
         return;
@@ -163,6 +183,7 @@ function App() {
       const p = await res.json();
       setProfile(p);
     } catch (e) {
+      console.error('Error fetching profile', e);
       setErrorMsg('Failed to fetch profile');
     } finally {
       setProfileLoading(false);
@@ -177,6 +198,74 @@ function App() {
       setProfile(null);
     }
   }, [token]);
+
+  // ---------- Token refresh helpers ----------
+  async function refreshTokenIfNeeded(): Promise<string | null> {
+    if (!tokenBundle) return null;
+
+    const now = Math.floor(Date.now() / 1000);
+    // 提前 60 秒刷新
+    if (tokenBundle.expires_at > now + 60) {
+      return tokenBundle.access_token;
+    }
+
+    try {
+      const res = await fetch(
+        `http://localhost:8000/auth/strava/refresh?refresh_token=${tokenBundle.refresh_token}`,
+        { method: 'POST' }
+      );
+
+      if (!res.ok) {
+        console.error('Failed to refresh token', await res.text());
+        return null;
+      }
+
+      const data = await res.json();
+      const newBundle = {
+        access_token: data.access_token,
+        refresh_token: data.refresh_token,
+        expires_at: data.expires_at,
+      } as const;
+
+      setTokenBundle(newBundle as any);
+      try { localStorage.setItem('strava_token_bundle', JSON.stringify(newBundle)); } catch {}
+      return newBundle.access_token;
+    } catch (e) {
+      console.error('Error refreshing token', e);
+      return null;
+    }
+  }
+
+  async function fetchWithAutoRefresh(
+    input: string,
+    extraParams?: Record<string, string>,
+    init?: RequestInit
+  ): Promise<Response> {
+    const effectiveToken = await refreshTokenIfNeeded();
+    if (!effectiveToken) {
+      throw new Error('No valid Strava token');
+    }
+
+    const url = new URL(input);
+    if (extraParams) {
+      Object.entries(extraParams).forEach(([k, v]) => url.searchParams.set(k, v));
+    }
+
+    url.searchParams.set('token', effectiveToken);
+
+    let res = await fetch(url.toString(), init);
+
+    if (res.status === 401) {
+      console.warn('Got 401, trying to refresh token...');
+      const refreshed = await refreshTokenIfNeeded();
+      if (!refreshed) return res;
+
+      url.searchParams.set('token', refreshed);
+      res = await fetch(url.toString(), init);
+    }
+
+    return res;
+  }
 
   // compute filteredActivities from activities + filter state
   const filteredActivities = useMemo(() => {
@@ -237,26 +326,25 @@ function App() {
 
   // 清除本地 token — 先请求后端撤销 token，再清本地状态
   const handleLogout = async () => {
-    if (token) {
+    const currentAccess = tokenBundle?.access_token || token;
+    if (currentAccess) {
       try {
-        // call backend revoke endpoint; backend will call Strava deauthorize
-        await fetch(`http://localhost:8000/auth/strava/revoke?token=${token}`, { method: 'POST' });
+        await fetch(`http://localhost:8000/auth/strava/revoke?token=${currentAccess}`, { method: 'POST' });
       } catch (e) {
-        // ignore network errors — continue to clear local state
         console.warn("Failed to contact revoke endpoint", e);
       }
     }
 
-    localStorage.removeItem("strava_token");
-    // clear cached app data saved to localStorage
+    // clear cached token bundle
+    try { localStorage.removeItem('strava_token_bundle'); } catch {}
     try {
       localStorage.removeItem('rte_activities');
       localStorage.removeItem('rte_selectedIds');
-      localStorage.removeItem('rte_lines');
-    } catch (e) {
-      // ignore
-    }
+      
+    } catch (e) {}
+
     // clear local UI state so other views don't keep stale data
+    setTokenBundle(null);
     setToken(null);
     setActivities([]);
     setSelectedIds([]);
