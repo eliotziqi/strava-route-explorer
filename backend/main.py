@@ -227,3 +227,32 @@ def strava_callback(code: str):
     # redirect_url += f"&athlete_id={athlete.get('id')}"
 
     return RedirectResponse(redirect_url)
+
+
+@app.post("/auth/strava/revoke")
+def strava_revoke(token: str = None):
+    """Revoke (deauthorize) an access token with Strava.
+
+    Accepts `token` as a query parameter. This calls Strava's deauthorize
+    endpoint which revokes the token so future requests with it will fail.
+    """
+    if not token:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "token query parameter is required"},
+        )
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+    }
+
+    # Strava deauthorize endpoint
+    resp = requests.post("https://www.strava.com/oauth/deauthorize", headers=headers)
+
+    if resp.status_code == 200:
+        return {"revoked": True}
+
+    return JSONResponse(
+        status_code=resp.status_code,
+        content={"error": "failed_to_revoke", "detail": resp.text},
+    )

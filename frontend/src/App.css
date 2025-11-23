@@ -1,5 +1,5 @@
 #root {
-  max-width: 1280px;
+  max-width: none;
   margin: 0 auto;
   padding: 2rem;
   text-align: center;
@@ -40,3 +40,82 @@
 .read-the-docs {
   color: #888;
 }
+
+/* Layout for Route Explorer */
+.page {
+  width: 100%;
+}
+
+.page.profile {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.page.full {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+/* Make full pages span the viewport while keeping app padding */
+.page.full {
+  max-width: none;
+  margin: 0;
+  width: 100vw;
+  box-sizing: border-box;
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+
+@media (max-width: 960px) {
+  .page.profile {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sidebar .card {
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.02);
+}
+
+.main {
+  min-width: 0;
+}
+
+.json {
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: monospace;
+  background: rgba(0,0,0,0.04);
+  padding: 12px;
+  border-radius: 8px;
+}
+
+/* Ensure leaflet map container receives pointer events and sits above minor overlays */
+.leaflet-container {
+  z-index: 0;
+  pointer-events: auto;
+}
+
+@media (max-width: 960px) {
+  .json {
+    max-height: 50vh;
+  }
+  .sidebar { order: 0; }
+}
+
+.tabs { display:flex; gap:8px; align-items:center; }
+.tab-btn { padding:8px 14px; border-radius:8px; cursor:pointer; background: transparent; border: 1px solid rgba(148,163,184,0.06); color: white; font-weight:600 }
+.tab-btn.active { background: rgba(255,76,2,0.08); border-color: #ffbfa6 }
+
