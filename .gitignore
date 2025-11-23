@@ -6,7 +6,8 @@ frontend/dist/
 backend/venv/
 backend/.venv/
 backend/__pycache__/
-backend/.env
+backend/.env.development
+backend/.env.production
 
 # VS Code
 .vscode/
