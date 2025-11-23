@@ -10,13 +10,26 @@ type Activity = {
   start_latlng?: [number, number];
 };
 
+type StatViewProps = {
+  activities: Activity[];
+  selectedIds?: number[];
+  filterSports: string[];
+  filterYears: string[];
+  filterHasRoute: boolean;
+};
+
 export default function StatView({
   activities,
   selectedIds,
-}: {
-  activities: Activity[];
-  selectedIds?: number[];
-}) {
+  filterSports,
+  filterYears,
+  filterHasRoute,
+}: StatViewProps) {
+
+  const sportsLabel = filterSports && filterSports.length ? filterSports.join(', ') : 'All';
+  const yearsLabel = filterYears && filterYears.length ? filterYears.join(', ') : 'All';
+  const extraFlags: string[] = [];
+  if (filterHasRoute) extraFlags.push('Only with route');
 
   const stats = useMemo(() => {
     const sel = new Set(selectedIds || []);
@@ -62,6 +75,26 @@ export default function StatView({
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Stats</h2>
+
+      {/* 当前筛选状态 Summary */}
+      <p
+        style={{
+          fontSize: 13,
+          opacity: 0.8,
+          marginTop: 4,
+          marginBottom: 16,
+        }}
+      >
+        <span>Sports: {sportsLabel}</span>
+        <span style={{ margin: '0 8px' }}>|</span>
+        <span>Years: {yearsLabel}</span>
+        {extraFlags.length > 0 && (
+          <>
+            <span style={{ margin: '0 8px' }}>|</span>
+            <span>{extraFlags.join(' · ')}</span>
+          </>
+        )}
+      </p>
 
       <div
         style={{

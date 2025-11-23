@@ -332,7 +332,18 @@ function App() {
               }
             />
             <Route path="/map" element={<MapView activities={filteredActivities} selectedIds={selectedIds} />} />
-            <Route path="/stat" element={<StatView activities={filteredActivities} selectedIds={selectedIds} />} />
+            <Route
+              path="/stat"
+              element={
+                <StatView
+                  activities={filteredActivities}
+                  selectedIds={selectedIds}
+                  filterSports={filterSports}
+                  filterYears={filterYears}
+                  filterHasRoute={filterHasRoute}
+                />
+              }
+            />
           </Routes>
         </main>
       </div>
