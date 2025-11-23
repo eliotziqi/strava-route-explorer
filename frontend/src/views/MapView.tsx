@@ -23,7 +23,17 @@ function FitBounds({ lines }:{lines:any[]}){
   return null;
 }
 
-export default function MapView({ activities, selectedIds }: { activities:any[]; selectedIds:number[] }){
+type MapViewProps = {
+  activities: any[];
+  selectedIds: number[];
+  filterSports: string[];
+  filterYears: string[];
+  filterHasRoute: boolean;
+  allSports?: string[];
+  allYears?: string[];
+};
+
+export default function MapView({ activities, selectedIds, filterSports, filterYears, filterHasRoute, allSports, allYears }: MapViewProps){
   // decode selected polylines from activities (client-side) to avoid extra backend calls
   const lines = useMemo(() => {
     if (!activities || activities.length === 0) return [];
@@ -44,9 +54,43 @@ export default function MapView({ activities, selectedIds }: { activities:any[];
     return out;
   }, [activities, selectedIds]);
 
+  // summary labels (same as StatView)
+  const sportsLabel = (() => {
+    if (!filterSports || filterSports.length === 0) return 'None';
+    if (allSports && filterSports.length === allSports.length) return 'All';
+    return filterSports.join(', ');
+  })();
+
+  const yearsLabel = (() => {
+    if (!filterYears || filterYears.length === 0) return 'None';
+    if (allYears && filterYears.length === allYears.length) return 'All';
+    return filterYears.join(', ');
+  })();
+
+  const extraFlags: string[] = [];
+  if (filterHasRoute) extraFlags.push('Only with route');
+
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Map</h2>
+      <p
+        style={{
+          fontSize: 13,
+          opacity: 0.8,
+          marginTop: 4,
+          marginBottom: 12,
+        }}
+      >
+        <span>Sports: {sportsLabel}</span>
+        <span style={{ margin: '0 8px' }}>|</span>
+        <span>Years: {yearsLabel}</span>
+        {extraFlags.length > 0 && (
+          <>
+            <span style={{ margin: '0 8px' }}>|</span>
+            <span>{extraFlags.join(' · ')}</span>
+          </>
+        )}
+      </p>
       <AnyMapContainer center={[0, 0] as any} zoom={2} style={{ height: '60vh', width: '100%' }}>
         <TileLayer url='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png' />
         {lines.map((coords, idx) => (<Polyline key={idx} positions={coords} pathOptions={{ color: '#ff4c02', weight: 3 }} />))}

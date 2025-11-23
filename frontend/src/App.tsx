@@ -445,7 +445,7 @@ function App() {
                 />
               }
             />
-            <Route path="/map" element={<MapView activities={filteredActivities} selectedIds={selectedIds} />} />
+            <Route path="/map" element={<MapView activities={filteredActivities} selectedIds={selectedIds} filterSports={filterSports} filterYears={filterYears} filterHasRoute={filterHasRoute} allSports={allSports} allYears={allYears} />} />
             <Route
               path="/stat"
               element={
