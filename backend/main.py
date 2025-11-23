@@ -88,6 +88,7 @@ def get_activities(token: str = None, per_page: int = 30, page: int = 1, all: bo
     def _clean_list(raw_list):
         cleaned = []
         for a in raw_list:
+            mp = a.get("map") or {}
             cleaned.append(
                 {
                     "id": a.get("id"),
@@ -96,6 +97,7 @@ def get_activities(token: str = None, per_page: int = 30, page: int = 1, all: bo
                     "distance": a.get("distance"),
                     "moving_time": a.get("moving_time"),
                     "start_date": a.get("start_date"),
+                    "polyline": mp.get("summary_polyline") or mp.get("polyline"),
                 }
             )
         return cleaned

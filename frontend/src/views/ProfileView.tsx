@@ -1,5 +1,3 @@
-import React from 'react';
-
 export default function ProfileView({ token, profile, profileLoading, fetchProfile, handleLogin, handleLogout }: any) {
   // helper to render a metadata row
   const Row = ({ k, v }: { k: string; v: any }) => (

@@ -1,22 +1,21 @@
 import { useEffect, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { NavLink, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import ActivityView from './views/ActivityView';
 import MapView from './views/MapView';
 import DataView from './views/DataView';
 import ProfileView from './views/ProfileView';
+import appIcon from './assets/icon-app.png';
 
 function App() {
   const [token, setToken] = useState<string | null>(null);
   const [activities, setActivities] = useState<any[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [lines, setLines] = useState<any[]>([]);
   const [profile, setProfile] = useState<any | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [loadingActivities, setLoadingActivities] = useState(false);
-  const [loadingLines, setLoadingLines] = useState(false);
+  
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const location = useLocation();
   const navigate = useNavigate();
 
 
@@ -41,10 +40,8 @@ function App() {
     try {
       const rawActs = localStorage.getItem('rte_activities');
       const rawIds = localStorage.getItem('rte_selectedIds');
-      const rawLines = localStorage.getItem('rte_lines');
       if (rawActs) setActivities(JSON.parse(rawActs));
       if (rawIds) setSelectedIds(JSON.parse(rawIds));
-      if (rawLines) setLines(JSON.parse(rawLines));
     } catch (e) {
       console.warn('Failed to restore cached state', e);
     }
@@ -53,55 +50,13 @@ function App() {
   // Note: activities are no longer auto-fetched when token appears.
   // Provide explicit controls on the Activity page to load recent 30 or load all.
 
-  // Fetch lines when selectedIds change
-  useEffect(() => {
-    // lines fetch is now done via `fetchLines` so we can also call it manually
-    fetchLines();
-  }, [token, selectedIds]);
+  // No automatic network calls for lines — MapView computes polylines locally from activities
 
   const toggleSelect = (id: number) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const selectAll = () => {
-    const ids = activities.map((a: any) => a.id).filter(Boolean) as number[];
-    setSelectedIds(ids);
-  };
-
-  const clearAll = () => setSelectedIds([]);
-
-  // extract fetchLines so Refresh button can call it manually
-  async function fetchLines(ids?: number[]) {
-    const useIds = ids ?? selectedIds;
-    if (!token) return;
-    if (!useIds || useIds.length === 0) {
-      setLines([]);
-      try { localStorage.setItem('rte_lines', JSON.stringify([])); } catch {}
-      return;
-    }
-
-    setLoadingLines(true);
-    setErrorMsg(null);
-    try {
-      const qs = useIds.map((id) => `ids=${id}`).join("&");
-      const res = await fetch(`http://localhost:8000/activity_lines?token=${token}&${qs}`);
-      if (!res.ok) {
-        const txt = await res.text();
-        console.error("Failed to fetch activity lines", txt);
-        setErrorMsg("Failed to load activity lines");
-        return;
-      }
-
-      const data = await res.json();
-      setLines(data || []);
-      try { localStorage.setItem('rte_lines', JSON.stringify(data || [])); } catch {}
-    } catch (err) {
-      console.error("Error fetching activity lines", err);
-      setErrorMsg("Failed to load activity lines");
-    } finally {
-      setLoadingLines(false);
-    }
-  }
+  // removed fetchLines — frontend will decode polylines locally from activities
 
   // Load recent activities (single page, per_page=30) and merge into state
   const loadRecentActivities = async () => {
@@ -138,8 +93,7 @@ function App() {
       setSelectedIds(nextSelected);
       try { localStorage.setItem('rte_selectedIds', JSON.stringify(nextSelected)); } catch {}
 
-      // immediately fetch lines for the new selection so map updates even if user is on Map view
-      fetchLines(nextSelected);
+      // MapView will decode polylines from activities; no backend call here
     } catch (e) {
       console.error('Error loading recent activities', e);
       setErrorMsg('Failed to load recent activities');
@@ -183,8 +137,7 @@ function App() {
       setSelectedIds(nextSelected);
       try { localStorage.setItem('rte_selectedIds', JSON.stringify(nextSelected)); } catch {}
 
-      // fetch lines for newly merged selection
-      fetchLines(nextSelected);
+      // MapView will decode polylines from activities; no backend call here
     } catch (e) {
       console.error('Error loading all activities', e);
       setErrorMsg('Failed to load all activities');
@@ -244,11 +197,18 @@ function App() {
     }
 
     localStorage.removeItem("strava_token");
+    // clear cached app data saved to localStorage
+    try {
+      localStorage.removeItem('rte_activities');
+      localStorage.removeItem('rte_selectedIds');
+      localStorage.removeItem('rte_lines');
+    } catch (e) {
+      // ignore
+    }
     // clear local UI state so other views don't keep stale data
     setToken(null);
     setActivities([]);
     setSelectedIds([]);
-    setLines([]);
     setProfile(null);
     setErrorMsg(null);
     // navigate to profile view after logout
@@ -283,7 +243,7 @@ function App() {
         gap: 24,
       }}
     >
-      <img src="../public/icon-app.png" style={{ width: 48, height: 48, borderRadius: 8 }} />
+      <img src={appIcon} style={{ width: 48, height: 48, borderRadius: 8 }} />
 
       <h1 style={{ fontSize: 32, fontWeight: 700 }}>Route Explorer</h1>
 
@@ -310,10 +270,10 @@ function App() {
 
           <Routes>
             <Route path="/" element={<Navigate to="/activity" replace />} />
-            <Route path="/activity" element={<ActivityView activities={activities} loadingActivities={loadingActivities} selectedIds={selectedIds} toggleSelect={toggleSelect} loadRecent={loadRecentActivities} loadAll={loadAllActivities} />} />
-            <Route path="/map" element={<MapView lines={lines} loadingLines={loadingLines} />} />
-            <Route path="/data" element={<DataView activities={activities} lines={lines} />} />
             <Route path="/profile" element={<ProfileView token={token} profile={profile} profileLoading={profileLoading} fetchProfile={fetchProfile} handleLogin={handleLogin} handleLogout={handleLogout} />} />
+            <Route path="/activity" element={<ActivityView activities={activities} loadingActivities={loadingActivities} selectedIds={selectedIds} toggleSelect={toggleSelect} loadRecent={loadRecentActivities} loadAll={loadAllActivities} />} />
+            <Route path="/map" element={<MapView activities={activities} selectedIds={selectedIds} />} />
+            <Route path="/data" element={<DataView activities={activities} selectedIds={selectedIds} />} />
           </Routes>
         </main>
       </div>
