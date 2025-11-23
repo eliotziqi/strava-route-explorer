@@ -109,6 +109,8 @@ export default function ActivityView({
     whiteSpace: 'nowrap',
   });
 
+  const getStravaActivityUrl = (id: number | string) => `https://www.strava.com/activities/${id}`;
+
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Activities</h2>
@@ -260,6 +262,34 @@ export default function ActivityView({
                   <div style={{ opacity: 0.8, fontSize: 13 }}>
                     {date} • {a.type} • {km} km
                   </div>
+                </div>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                  <button
+                    className="strava-link-button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      try {
+                        window.open(getStravaActivityUrl(a.id), '_blank');
+                      } catch (err) {
+                        // fallback
+                        const url = getStravaActivityUrl(a.id);
+                        const win = window.open(url, '_blank');
+                        if (win) win.focus();
+                      }
+                    }}
+                    style={{
+                      padding: '6px 8px',
+                      borderRadius: 8,
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      background: 'transparent',
+                      color: 'white',
+                      fontSize: 13,
+                      cursor: 'pointer',
+                    }}
+                    title="View on Strava"
+                  >
+                    View on Strava
+                  </button>
                 </div>
               </li>
             );
