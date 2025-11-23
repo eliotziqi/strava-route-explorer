@@ -3,7 +3,7 @@ import "leaflet/dist/leaflet.css";
 import { NavLink, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import ActivityView from './views/ActivityView';
 import MapView from './views/MapView';
-import DataView from './views/DataView';
+import StatView from './views/StatView';
 import ProfileView from './views/ProfileView';
 import appIcon from './assets/icon-app.png';
 
@@ -247,7 +247,7 @@ function App() {
 
       <h1 style={{ fontSize: 32, fontWeight: 700 }}>Route Explorer</h1>
 
-      {/* Top tab bar (Activity / Map / Data / Profile) */}
+      {/* Top tab bar (Profile / Activity / Stats / Map) */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
         <NavLink to="/profile" style={({isActive}) => ({ padding: '8px 12px', borderRadius: 8, border: isActive ? '1px solid #ffbfa6' : '1px solid rgba(148,163,184,0.06)', background: isActive ? 'rgba(255,76,2,0.08)' : 'transparent', color: 'white', cursor: 'pointer', fontWeight: 600 })}>
           Profile
@@ -255,8 +255,8 @@ function App() {
         <NavLink to="/activity" style={({isActive}) => ({ padding: '8px 12px', borderRadius: 8, border: isActive ? '1px solid #ffbfa6' : '1px solid rgba(148,163,184,0.06)', background: isActive ? 'rgba(255,76,2,0.08)' : 'transparent', color: 'white', cursor: 'pointer', fontWeight: 600 })}>
           Activity
         </NavLink>
-        <NavLink to="/data" style={({isActive}) => ({ padding: '8px 12px', borderRadius: 8, border: isActive ? '1px solid #ffbfa6' : '1px solid rgba(148,163,184,0.06)', background: isActive ? 'rgba(255,76,2,0.08)' : 'transparent', color: 'white', cursor: 'pointer', fontWeight: 600 })}>
-          Data
+        <NavLink to="/stat" style={({isActive}) => ({ padding: '8px 12px', borderRadius: 8, border: isActive ? '1px solid #ffbfa6' : '1px solid rgba(148,163,184,0.06)', background: isActive ? 'rgba(255,76,2,0.08)' : 'transparent', color: 'white', cursor: 'pointer', fontWeight: 600 })}>
+          Stats
         </NavLink>
         <NavLink to="/map" style={({isActive}) => ({ padding: '8px 12px', borderRadius: 8, border: isActive ? '1px solid #ffbfa6' : '1px solid rgba(148,163,184,0.06)', background: isActive ? 'rgba(255,76,2,0.08)' : 'transparent', color: 'white', cursor: 'pointer', fontWeight: 600 })}>
           Map
@@ -273,7 +273,7 @@ function App() {
             <Route path="/profile" element={<ProfileView token={token} profile={profile} profileLoading={profileLoading} fetchProfile={fetchProfile} handleLogin={handleLogin} handleLogout={handleLogout} />} />
             <Route path="/activity" element={<ActivityView activities={activities} loadingActivities={loadingActivities} selectedIds={selectedIds} toggleSelect={toggleSelect} loadRecent={loadRecentActivities} loadAll={loadAllActivities} />} />
             <Route path="/map" element={<MapView activities={activities} selectedIds={selectedIds} />} />
-            <Route path="/data" element={<DataView activities={activities} selectedIds={selectedIds} />} />
+            <Route path="/stat" element={<StatView activities={activities} selectedIds={selectedIds} />} />
           </Routes>
         </main>
       </div>
