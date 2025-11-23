@@ -75,7 +75,7 @@ export default function StatView({
         <StatCard label="Total Distance" value={`${stats.totalDistanceKm} km`} />
         <StatCard label="Total Time" value={`${stats.totalHours} h`} />
         <StatCard label="This Year" value={`${stats.yearDistanceKm} km`} />
-        <StatCard label="Longest Ride" value={`${stats.longestKm} km`} />
+        <StatCard label="Longest" value={`${stats.longestKm} km`} />
         <StatCard label="Primary Sport" value={stats.primarySport || "-"} />
       </div>
     </div>

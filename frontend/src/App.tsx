@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import "leaflet/dist/leaflet.css";
 import { NavLink, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import ActivityView from './views/ActivityView';
@@ -10,6 +10,9 @@ import appIcon from './assets/icon-app.png';
 function App() {
   const [token, setToken] = useState<string | null>(null);
   const [activities, setActivities] = useState<any[]>([]);
+  const [filterSport, setFilterSport] = useState<'all' | 'Ride' | 'Run' | 'Walk'>('all');
+  const [filterYear, setFilterYear] = useState<'all' | string>('all');
+  const [filterHasRoute, setFilterHasRoute] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [profile, setProfile] = useState<any | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -175,6 +178,24 @@ function App() {
     }
   }, [token]);
 
+  // compute filteredActivities from activities + filter state
+  const filteredActivities = useMemo(() => {
+    return (activities || []).filter((a) => {
+      if (!a) return false;
+
+      if (filterSport !== 'all' && a.type !== filterSport) return false;
+
+      if (filterYear !== 'all' && a.start_date) {
+        const y = new Date(a.start_date).getFullYear().toString();
+        if (y !== filterYear) return false;
+      }
+
+      if (filterHasRoute && !a.polyline) return false;
+
+      return true;
+    });
+  }, [activities, filterSport, filterYear, filterHasRoute]);
+
   
 
   
@@ -270,10 +291,43 @@ function App() {
 
           <Routes>
             <Route path="/" element={<Navigate to="/activity" replace />} />
-            <Route path="/profile" element={<ProfileView token={token} profile={profile} profileLoading={profileLoading} fetchProfile={fetchProfile} handleLogin={handleLogin} handleLogout={handleLogout} />} />
-            <Route path="/activity" element={<ActivityView activities={activities} loadingActivities={loadingActivities} selectedIds={selectedIds} toggleSelect={toggleSelect} loadRecent={loadRecentActivities} loadAll={loadAllActivities} />} />
-            <Route path="/map" element={<MapView activities={activities} selectedIds={selectedIds} />} />
-            <Route path="/stat" element={<StatView activities={activities} selectedIds={selectedIds} />} />
+            <Route
+              path="/profile"
+              element={
+                <ProfileView
+                  token={token}
+                  profile={profile}
+                  profileLoading={profileLoading}
+                  fetchProfile={fetchProfile}
+                  handleLogin={handleLogin}
+                  handleLogout={handleLogout}
+                  activities={activities}
+                  selectedIds={selectedIds}
+                />
+              }
+            />
+            <Route
+              path="/activity"
+              element={
+                <ActivityView
+                  activities={filteredActivities}
+                  allActivities={activities}
+                  loadingActivities={loadingActivities}
+                  selectedIds={selectedIds}
+                  toggleSelect={toggleSelect}
+                  loadRecent={loadRecentActivities}
+                  loadAll={loadAllActivities}
+                  filterSport={filterSport}
+                  setFilterSport={setFilterSport}
+                  filterYear={filterYear}
+                  setFilterYear={setFilterYear}
+                  filterHasRoute={filterHasRoute}
+                  setFilterHasRoute={setFilterHasRoute}
+                />
+              }
+            />
+            <Route path="/map" element={<MapView activities={filteredActivities} selectedIds={selectedIds} />} />
+            <Route path="/stat" element={<StatView activities={filteredActivities} selectedIds={selectedIds} />} />
           </Routes>
         </main>
       </div>
