@@ -37,42 +37,21 @@ function App() {
         setToken(saved);
       }
     }
+    // restore cached app state if present
+    try {
+      const rawActs = localStorage.getItem('rte_activities');
+      const rawIds = localStorage.getItem('rte_selectedIds');
+      const rawLines = localStorage.getItem('rte_lines');
+      if (rawActs) setActivities(JSON.parse(rawActs));
+      if (rawIds) setSelectedIds(JSON.parse(rawIds));
+      if (rawLines) setLines(JSON.parse(rawLines));
+    } catch (e) {
+      console.warn('Failed to restore cached state', e);
+    }
   }, []);
 
-  // Fetch activities when token is available
-  useEffect(() => {
-    if (!token) return;
-    setErrorMsg(null);
-    setLoadingActivities(true);
-
-    const fetchActivities = async () => {
-      try {
-        const res = await fetch(`http://localhost:8000/activities?token=${token}`);
-        if (!res.ok) {
-          console.error("Failed to fetch activities", await res.text());
-          return;
-        }
-
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setActivities(data);
-          // default: select all activity ids
-          const ids = data.map((a: any) => a.id).filter(Boolean) as number[];
-          setSelectedIds(ids);
-        } else {
-          console.warn("Unexpected activities response", data);
-        }
-      } catch (err) {
-        console.error("Error fetching activities", err);
-        setErrorMsg("Failed to load activities");
-      }
-      finally {
-        setLoadingActivities(false);
-      }
-    };
-
-    fetchActivities();
-  }, [token]);
+  // Note: activities are no longer auto-fetched when token appears.
+  // Provide explicit controls on the Activity page to load recent 30 or load all.
 
   // Fetch lines when selectedIds change
   useEffect(() => {
@@ -92,17 +71,19 @@ function App() {
   const clearAll = () => setSelectedIds([]);
 
   // extract fetchLines so Refresh button can call it manually
-  async function fetchLines() {
+  async function fetchLines(ids?: number[]) {
+    const useIds = ids ?? selectedIds;
     if (!token) return;
-    if (!selectedIds || selectedIds.length === 0) {
+    if (!useIds || useIds.length === 0) {
       setLines([]);
+      try { localStorage.setItem('rte_lines', JSON.stringify([])); } catch {}
       return;
     }
 
     setLoadingLines(true);
     setErrorMsg(null);
     try {
-      const qs = selectedIds.map((id) => `ids=${id}`).join("&");
+      const qs = useIds.map((id) => `ids=${id}`).join("&");
       const res = await fetch(`http://localhost:8000/activity_lines?token=${token}&${qs}`);
       if (!res.ok) {
         const txt = await res.text();
@@ -113,6 +94,7 @@ function App() {
 
       const data = await res.json();
       setLines(data || []);
+      try { localStorage.setItem('rte_lines', JSON.stringify(data || [])); } catch {}
     } catch (err) {
       console.error("Error fetching activity lines", err);
       setErrorMsg("Failed to load activity lines");
@@ -120,6 +102,96 @@ function App() {
       setLoadingLines(false);
     }
   }
+
+  // Load recent activities (single page, per_page=30) and merge into state
+  const loadRecentActivities = async () => {
+    if (!token) {
+      setErrorMsg('Please connect Strava first');
+      return;
+    }
+
+    setLoadingActivities(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch(`http://localhost:8000/activities?token=${token}&per_page=30&page=1`);
+      if (!res.ok) {
+        const txt = await res.text();
+        console.error('Failed to load recent activities', txt);
+        setErrorMsg('Failed to load recent activities');
+        return;
+      }
+      const data = await res.json();
+      if (!Array.isArray(data)) return;
+
+      // merge with current activities (avoid duplicates)
+      const merged = (() => {
+        const byId = new Map(activities.map((a) => [a.id, a]));
+        data.forEach((a: any) => byId.set(a.id, a));
+        return Array.from(byId.values()).sort((x: any, y: any) => (y.start_date ?? '').localeCompare(x.start_date ?? ''));
+      })();
+      setActivities(merged);
+      try { localStorage.setItem('rte_activities', JSON.stringify(merged)); } catch {}
+
+      // add new ids to selection but don't remove existing ones
+      const newIds = data.map((a: any) => a.id).filter(Boolean) as number[];
+      const nextSelected = Array.from(new Set([...selectedIds, ...newIds]));
+      setSelectedIds(nextSelected);
+      try { localStorage.setItem('rte_selectedIds', JSON.stringify(nextSelected)); } catch {}
+
+      // immediately fetch lines for the new selection so map updates even if user is on Map view
+      fetchLines(nextSelected);
+    } catch (e) {
+      console.error('Error loading recent activities', e);
+      setErrorMsg('Failed to load recent activities');
+    } finally {
+      setLoadingActivities(false);
+    }
+  };
+
+  // Load all activities (multiple pages). Backend handles paging when all=true.
+  // Merges results into existing activities without duplicates.
+  const loadAllActivities = async () => {
+    if (!token) {
+      setErrorMsg('Please connect Strava first');
+      return;
+    }
+
+    setLoadingActivities(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch(`http://localhost:8000/activities?token=${token}&all=true`);
+      if (!res.ok) {
+        const txt = await res.text();
+        console.error('Failed to load all activities', txt);
+        setErrorMsg('Failed to load all activities');
+        return;
+      }
+
+      const data = await res.json();
+      if (!Array.isArray(data)) return;
+
+      const merged = (() => {
+        const byId = new Map(activities.map((a) => [a.id, a]));
+        data.forEach((a: any) => byId.set(a.id, a));
+        return Array.from(byId.values()).sort((x: any, y: any) => (y.start_date ?? '').localeCompare(x.start_date ?? ''));
+      })();
+      setActivities(merged);
+      try { localStorage.setItem('rte_activities', JSON.stringify(merged)); } catch {}
+
+      const newIds = data.map((a: any) => a.id).filter(Boolean) as number[];
+      const nextSelected = Array.from(new Set([...selectedIds, ...newIds]));
+      setSelectedIds(nextSelected);
+      try { localStorage.setItem('rte_selectedIds', JSON.stringify(nextSelected)); } catch {}
+
+      // fetch lines for newly merged selection
+      fetchLines(nextSelected);
+    } catch (e) {
+      console.error('Error loading all activities', e);
+      setErrorMsg('Failed to load all activities');
+    } finally {
+      setLoadingActivities(false);
+    }
+  };
 
   // fetch profile helper
   const fetchProfile = async () => {
@@ -227,7 +299,7 @@ function App() {
 
           <Routes>
             <Route path="/" element={<Navigate to="/activity" replace />} />
-            <Route path="/activity" element={<ActivityView activities={activities} loadingActivities={loadingActivities} selectedIds={selectedIds} toggleSelect={toggleSelect} />} />
+            <Route path="/activity" element={<ActivityView activities={activities} loadingActivities={loadingActivities} selectedIds={selectedIds} toggleSelect={toggleSelect} loadRecent={loadRecentActivities} loadAll={loadAllActivities} />} />
             <Route path="/map" element={<MapView lines={lines} loadingLines={loadingLines} />} />
             <Route path="/data" element={<DataView activities={activities} lines={lines} />} />
             <Route path="/profile" element={<ProfileView token={token} profile={profile} profileLoading={profileLoading} fetchProfile={fetchProfile} handleLogin={handleLogin} handleLogout={handleLogout} />} />

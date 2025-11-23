@@ -68,10 +68,14 @@ def get_profile(token: str):
 
 
 @app.get("/activities")
-def get_activities(token: str = None):
-    """Fetch recent activities from Strava and return a cleaned list.
+def get_activities(token: str = None, per_page: int = 30, page: int = 1, all: bool = False):
+    """Fetch activities from Strava and return a cleaned list.
 
-    Accepts `token` as a query parameter. If not provided, returns 400.
+    Query params:
+    - `token` (required): access token
+    - `per_page` (optional): items per page (default 30)
+    - `page` (optional): page number (default 1)
+    - `all` (optional): if true, fetch all pages (uses per_page=200 internally)
     """
     if not token:
         return JSONResponse(
@@ -80,8 +84,51 @@ def get_activities(token: str = None):
         )
 
     headers = {"Authorization": f"Bearer {token}"}
-    params = {"per_page": 30}
 
+    def _clean_list(raw_list):
+        cleaned = []
+        for a in raw_list:
+            cleaned.append(
+                {
+                    "id": a.get("id"),
+                    "name": a.get("name"),
+                    "type": a.get("type"),
+                    "distance": a.get("distance"),
+                    "moving_time": a.get("moving_time"),
+                    "start_date": a.get("start_date"),
+                }
+            )
+        return cleaned
+
+    if all:
+        # fetch all pages using a large per_page (200) and iterate until no results
+        results = []
+        cur_page = 1
+        while True:
+            params = {"per_page": 200, "page": cur_page}
+            resp = requests.get(
+                "https://www.strava.com/api/v3/athlete/activities",
+                headers=headers,
+                params=params,
+            )
+
+            if resp.status_code != 200:
+                return JSONResponse(
+                    status_code=resp.status_code,
+                    content={"error": "failed to fetch activities", "detail": resp.text},
+                )
+
+            raw = resp.json()
+            if not raw:
+                break
+
+            results.extend(raw)
+            cur_page += 1
+
+        return _clean_list(results)
+
+    # single page
+    params = {"per_page": per_page, "page": page}
     resp = requests.get(
         "https://www.strava.com/api/v3/athlete/activities",
         headers=headers,
@@ -95,22 +142,7 @@ def get_activities(token: str = None):
         )
 
     raw = resp.json()
-
-    # Normalize / clean fields for the frontend
-    cleaned = []
-    for a in raw:
-        cleaned.append(
-            {
-                "id": a.get("id"),
-                "name": a.get("name"),
-                "type": a.get("type"),
-                "distance": a.get("distance"),
-                "moving_time": a.get("moving_time"),
-                "start_date": a.get("start_date"),
-            }
-        )
-
-    return cleaned
+    return _clean_list(raw)
 
 
 @app.get("/activity_lines")
@@ -129,45 +161,88 @@ def activity_lines(token: str = None, ids: list[int] = Query(None)):
         )
 
     headers = {"Authorization": f"Bearer {token}"}
-    params = {"per_page": 30}
 
-    resp = requests.get(
-        "https://www.strava.com/api/v3/athlete/activities",
-        headers=headers,
-        params=params,
-    )
+    raw = []
 
-    if resp.status_code != 200:
-        return JSONResponse(
-            status_code=resp.status_code,
-            content={"error": "failed to fetch activities", "detail": resp.text},
+    # 如果传了 ids，就翻页拉完整历史活动（per_page=200，直到没有更多数据）
+    if ids:
+        page = 1
+        while True:
+            params = {"per_page": 200, "page": page}
+            resp = requests.get(
+                "https://www.strava.com/api/v3/athlete/activities",
+                headers=headers,
+                params=params,
+            )
+
+            if resp.status_code != 200:
+                return JSONResponse(
+                    status_code=resp.status_code,
+                    content={
+                        "error": "failed to fetch activities",
+                        "detail": resp.text,
+                    },
+                )
+
+            page_data = resp.json()
+            if not page_data:
+                break  # 没数据就结束（不要依赖找齐所有 ids）
+
+            raw.extend(page_data)
+            page += 1
+
+    else:
+        # 没传 ids，就默认拉最近 30 条
+        params = {"per_page": 30}
+        resp = requests.get(
+            "https://www.strava.com/api/v3/athlete/activities",
+            headers=headers,
+            params=params,
         )
 
-    raw = resp.json()
+        if resp.status_code != 200:
+            return JSONResponse(
+                status_code=resp.status_code,
+                content={
+                    "error": "failed to fetch activities",
+                    "detail": resp.text,
+                },
+            )
 
+        raw = resp.json()
+
+    # ========= 把 polyline 解出来 =========
     results = []
+    found = 0
+
     for a in raw:
         act_id = a.get("id")
+
+        # 如果传了 ids，只挑用户选中的那些
         if ids and act_id not in ids:
             continue
 
-        # Strava polyline is in map.summary_polyline (may be None)
         mp = a.get("map") or {}
         poly = mp.get("summary_polyline") or mp.get("polyline")
+
         if not poly:
-            # skip activities without polyline
             continue
 
         try:
-            # polyline.decode returns list of (lat, lng)
             latlngs = polyline.decode(poly)
-            # convert to list of [lat, lng] (react-leaflet expects [lat, lng])
             coords = [[lat, lng] for (lat, lng) in latlngs]
-
-            results.append({"id": act_id, "coords": coords})
-        except Exception as e:
-            # ignore decode errors per-activity
+            results.append({
+                "id": act_id,
+                "coords": coords
+            })
+            found += 1
+        except Exception:
             continue
+
+    print("activity_lines debug:")
+    print("  requested ids:", len(ids) if ids else 0)
+    print("  raw activities scanned:", len(raw))
+    print("  lines returned:", len(results))
 
     return results
 
