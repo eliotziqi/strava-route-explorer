@@ -7,7 +7,14 @@ import {
   Popup,
   CircleMarker,
 } from 'react-leaflet';
+import {
+  buildSegmentIndex,
+  normalizeCount,
+  getColor,
+} from '../../lib/heatmap';
 import type { ColorSchemeId } from '../../lib/heatmap';
+import ActivityPopup from './ActivityPopup';
+import FitBounds from './FitBounds';
 
 type LatLng = [number, number];
 
@@ -19,81 +26,148 @@ export interface DecodedActivity {
   points: LatLng[];
 }
 
-type MapCanvasProps = {
-  activities: DecodedActivity[];
-  colorScheme: ColorSchemeId; // 先用来决定一套大致配色
+type SegmentPolyline = {
+  key: string;
+  positions: LatLng[];
+  color: string;
+  weight: number;
 };
 
-// 简单 Haversine 距离（单位：米）
-function haversineDistance(a: LatLng, b: LatLng): number {
+type MapCanvasProps = {
+  activities: DecodedActivity[];
+  colorScheme: ColorSchemeId;
+};
+
+/* ------------------ 距离 / 命中工具 ------------------ */
+
+// 把经纬度投影到近似平面坐标（米）
+function projectToXYMeters([lat, lng]: LatLng, lat0: number): [number, number] {
   const R = 6371000;
-  const toRad = (x: number) => (x * Math.PI) / 180;
-
-  const dLat = toRad(b[0] - a[0]);
-  const dLng = toRad(b[1] - a[1]);
-
-  const sa = Math.sin(dLat / 2);
-  const sb = Math.sin(dLng / 2);
-
-  const c =
-    sa * sa +
-    Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * sb * sb;
-
-  return 2 * R * Math.asin(Math.sqrt(c));
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const x = R * toRad(lng) * Math.cos(toRad(lat0));
+  const y = R * toRad(lat);
+  return [x, y];
 }
 
-// 暴力：点到某条 polyline 的最近距离（扫所有线段端点）
-function distancePointToActivity(point: LatLng, act: DecodedActivity): number {
-  const pts = act.points;
-  if (!pts || pts.length === 0) return Infinity;
-  let best = Infinity;
+// 点到线段的距离（单位：米）
+function pointToSegmentDistanceMeters(p: LatLng, a: LatLng, b: LatLng): number {
+  const lat0 = p[0];
+  const [px, py] = projectToXYMeters(p, lat0);
+  const [ax, ay] = projectToXYMeters(a, lat0);
+  const [bx, by] = projectToXYMeters(b, lat0);
 
-  for (let i = 0; i < pts.length; i++) {
-    const d = haversineDistance(point, pts[i]);
+  const vx = bx - ax;
+  const vy = by - ay;
+  const wx = px - ax;
+  const wy = py - ay;
+
+  const c1 = vx * wx + vy * wy;
+  if (c1 <= 0) {
+    const dx = px - ax;
+    const dy = py - ay;
+    return Math.hypot(dx, dy);
+  }
+  const c2 = vx * vx + vy * vy;
+  if (c2 <= c1) {
+    const dx = px - bx;
+    const dy = py - by;
+    return Math.hypot(dx, dy);
+  }
+
+  const t = c1 / c2;
+  const projX = ax + t * vx;
+  const projY = ay + t * vy;
+
+  const dx = px - projX;
+  const dy = py - projY;
+  return Math.hypot(dx, dy);
+}
+
+// 点击点到活动 polyline 的最近距离（遍历所有线段）
+function distancePointToActivity(pt: LatLng, act: DecodedActivity): number {
+  const pts = act.points;
+  if (!pts || pts.length < 2) return Infinity;
+
+  let best = Infinity;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const d = pointToSegmentDistanceMeters(pt, pts[i], pts[i + 1]);
     if (d < best) best = d;
   }
   return best;
 }
 
-// 简单配色：不同方案给不同主色
-function pickColorByScheme(scheme: ColorSchemeId): string {
-  switch (scheme) {
-    case 'cool':
-      return '#37b7c3';
-    case 'fire':
-      return '#ff4500';
-    case 'blue':
-      return '#1d7ad5';
-    case 'mono':
-      return '#ffffff';
-    case 'warm':
-    default:
-      return '#ffb300';
-  }
+// zoom 自适应容差（单位：米）
+function toleranceForZoom(zoom: number): number {
+  const base = 40;
+  const scale = Math.pow(2, 12 - zoom);
+  const raw = base * scale;
+  return Math.max(30, Math.min(raw, 400));
 }
+
+/* ------------------ 地图点击组件 ------------------ */
 
 function ClickHandler({
   onClickPoint,
 }: {
-  onClickPoint: (pt: LatLng) => void;
+  onClickPoint: (pt: LatLng, zoom: number) => void;
 }) {
-  useMapEvents({
+  const map = useMapEvents({
     click(e) {
-      onClickPoint([e.latlng.lat, e.latlng.lng]);
+      onClickPoint([e.latlng.lat, e.latlng.lng], map.getZoom());
     },
   });
   return null;
 }
 
+/* ------------------ 主组件 ------------------ */
+
 export function MapCanvas({ activities, colorScheme }: MapCanvasProps) {
-  console.log('MapCanvas render (stable version)');
+  console.log('MapCanvas render (full heatmap)');
 
   const [selectedPoint, setSelectedPoint] = useState<LatLng | null>(null);
   const [matchedActivities, setMatchedActivities] = useState<DecodedActivity[]>(
     [],
   );
 
-  // 中心点：用第一条活动的第一个点，否则 [0,0]
+  /* ---------- 构建热力索引（带下采样） ---------- */
+  const segmentIndex = useMemo(
+    () => buildSegmentIndex(activities as any, 0.02, 500),
+    [activities],
+  );
+
+  const segCount = segmentIndex.segments?.length ?? 0;
+  const useFallback = segCount > 50000; // 太多就降级成每活动一条线
+
+  /* ---------- 安全 min / max ---------- */
+  const counts = (segmentIndex.segments || []).map((s: any) => s.count);
+
+  const minCount = counts.length
+    ? counts.reduce((a, b) => (a < b ? a : b), Infinity)
+    : 0;
+
+  const maxCount = counts.length
+    ? counts.reduce((a, b) => (a > b ? a : b), -Infinity)
+    : 1;
+
+  /* ---------- 热力 polyline 数据 ---------- */
+  const segmentPolylines: SegmentPolyline[] = useMemo(() => {
+    const segs = segmentIndex.segments || [];
+    if (segs.length === 0) return [];
+
+    return segs.map((s: any) => {
+      const t = normalizeCount(s.count, minCount, maxCount);
+      const color = getColor(t, colorScheme);
+      const weight = 1 + t * 3;
+      return {
+        key: s.id,
+        positions: [s.a, s.b],
+        color,
+        weight,
+      };
+    });
+  }, [segmentIndex, minCount, maxCount, colorScheme]);
+
+  /* ---------- 地图初始中心 ---------- */
   const center: LatLng = useMemo(() => {
     const firstAct = activities[0];
     if (firstAct && firstAct.points && firstAct.points.length > 0) {
@@ -102,21 +176,30 @@ export function MapCanvas({ activities, colorScheme }: MapCanvasProps) {
     return [0, 0];
   }, [activities]);
 
-  const strokeColor = pickColorByScheme(colorScheme);
-
-  const handleMapClick = (pt: LatLng) => {
+  /* ---------- 点击逻辑 ---------- */
+  const handleMapClick = (pt: LatLng, zoom: number) => {
     setSelectedPoint(pt);
 
-    // 暴力查找：所有活动里，距离点击点 < 50m 的
-    const tolerance = 50; // 50 米
-    const matched = activities.filter((act) => {
+    const tolerance = toleranceForZoom(zoom);
+    console.log('click at', pt, 'zoom', zoom, 'tolerance(m)', tolerance);
+
+    const nearby = activities.filter((act) => {
       const d = distancePointToActivity(pt, act);
       return d <= tolerance;
     });
 
-    setMatchedActivities(matched);
+    setMatchedActivities(nearby);
   };
 
+  /* ---------- FitBounds 用的 lines ---------- */
+  const boundLines: LatLng[][] = useMemo(() => {
+    if (useFallback) {
+      return activities.map((a) => a.points);
+    }
+    return segmentPolylines.map((p) => p.positions);
+  }, [useFallback, activities, segmentPolylines]);
+
+  /* ---------- 渲染 ---------- */
   return (
     <MapContainer
       center={center as any}
@@ -125,68 +208,47 @@ export function MapCanvas({ activities, colorScheme }: MapCanvasProps) {
     >
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-      {/* 按活动画线（简单版，不做聚合） */}
-      {activities.map((a) => (
-        <Polyline
-          key={a.id}
-          positions={a.points as any}
-          pathOptions={{
-            color: strokeColor,
-            weight: 2,
-            opacity: 0.8,
-          }}
-        />
-      ))}
+      {/* 热力线 / Fallback 线路 */}
+      {useFallback
+        ? activities.map((a) => (
+            <Polyline
+              key={a.id}
+              positions={a.points as any}
+              pathOptions={{
+                color: '#ffb300',
+                weight: 2,
+                opacity: 0.8,
+              }}
+            />
+          ))
+        : segmentPolylines.map((p) => (
+            <Polyline
+              key={p.key}
+              positions={p.positions as any}
+              pathOptions={{
+                color: p.color,
+                weight: p.weight,
+                opacity: 0.9,
+              }}
+            />
+          ))}
 
+      {/* 自动缩放（如果你暂时不想自动 fit，可以先注释掉这一行） */}
+      <FitBounds lines={boundLines} />
+
+      {/* 点击处理 */}
       <ClickHandler onClickPoint={handleMapClick} />
 
+      {/* 点击点 + 弹出活动列表 */}
       {selectedPoint && (
         <>
           <CircleMarker
             center={selectedPoint as any}
             radius={6}
-            pathOptions={{ color: '#fff' }}
+            pathOptions={{ color: '#ffffff' }}
           />
           <Popup position={selectedPoint as any}>
-            <div style={{ minWidth: 220 }}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>
-                Activities
-              </div>
-              {matchedActivities.length === 0 ? (
-                <div style={{ opacity: 0.8 }}>
-                  No activities near this point (≤ 50m)
-                </div>
-              ) : (
-                <ul
-                  style={{
-                    listStyle: 'none',
-                    padding: 0,
-                    margin: 0,
-                  }}
-                >
-                  {matchedActivities.map((m) => (
-                    <li key={m.id} style={{ marginBottom: 6 }}>
-                      <a
-                        href={`https://www.strava.com/activities/${m.id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ color: '#0077ff' }}
-                      >
-                        {m.name || `Activity ${m.id}`}
-                      </a>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          opacity: 0.8,
-                        }}
-                      >
-                        {m.type} • {m.date ? m.date.split('T')[0] : ''}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <ActivityPopup activities={matchedActivities} />
           </Popup>
         </>
       )}

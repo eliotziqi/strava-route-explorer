@@ -50,17 +50,26 @@ function segmentKey(a: LatLng, b: LatLng): string {
 export function buildSegmentIndex(
   activities: DecodedActivity[],
   cellSizeDegrees = 0.02,
+  maxPointsPerActivity = 500,   // 新增：每条活动最多参与多少点
 ): SegmentIndex {
   const segMap = new Map<string, SegmentMutable>();
 
-  // 1. 聚合线段
   for (const act of activities) {
     const pts = act.points;
     if (!pts || pts.length < 2) continue;
 
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i];
-      const b = pts[i + 1];
+    // ✅ 下采样：一条路线太长就抽稀，比如最多 500 点
+    const decimated: LatLng[] = [];
+    const step = Math.max(1, Math.floor(pts.length / maxPointsPerActivity));
+    for (let i = 0; i < pts.length; i += step) {
+      decimated.push(pts[i]);
+    }
+    if (decimated.length < 2) continue;
+
+    // 用抽稀后的点生成线段
+    for (let i = 0; i < decimated.length - 1; i++) {
+      const a = decimated[i];
+      const b = decimated[i + 1];
       const key = segmentKey(a, b);
 
       let seg = segMap.get(key);
@@ -89,7 +98,7 @@ export function buildSegmentIndex(
     activityIds: s.activityIds,
   }));
 
-  // 2. 粗网格索引
+  // 2. 粗网格索引同原来
   const grid: Record<string, number[]> = {};
 
   function cellKeyForLatLng([lat, lng]: LatLng): string {

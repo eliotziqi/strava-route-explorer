@@ -1,37 +1,41 @@
-import { useEffect, useRef } from "react";
-import { useMap } from "react-leaflet";
+import { useEffect, useRef } from 'react';
+import { useMap } from 'react-leaflet';
 
-export function FitBounds({ lines }: { lines: any[] }) {
+type LatLng = [number, number];
+
+interface FitBoundsProps {
+  lines: LatLng[][];
+  padding?: [number, number];
+}
+
+export default function FitBounds({ lines, padding }: FitBoundsProps) {
   const map = useMap();
   const hasFittedRef = useRef(false);
 
   useEffect(() => {
-    if (!map || !lines || lines.length === 0) return;
+    if (!map) return;
+    if (!lines || lines.length === 0) return;
     if (hasFittedRef.current) return;
 
-    const allCoords: [number, number][] = [];
-
-    for (const l of lines) {
-      if (Array.isArray(l)) {
-        for (const c of l) {
-          allCoords.push([c[0], c[1]]);
-        }
+    const allCoords: LatLng[] = [];
+    for (const line of lines) {
+      if (!Array.isArray(line)) continue;
+      for (const c of line) {
+        allCoords.push(c);
       }
     }
-
     if (allCoords.length === 0) return;
 
     try {
-      map.invalidateSize();
       map.fitBounds(allCoords as any, {
-        padding: [40, 40],
+        padding: padding ?? [40, 40],
         animate: false,
       });
       hasFittedRef.current = true;
     } catch (e) {
-      console.error("FitBounds failed", e);
+      console.error('FitBounds failed', e);
     }
-  }, [map, lines]);
+  }, [map, lines, padding]);
 
   return null;
 }
